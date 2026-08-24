@@ -3,6 +3,29 @@ set -e
 
 TASKS_FILE="tasks.json"
 
+# Hard-scope this script to the intended repository. It pushes branches and
+# merges PRs — running it from the wrong working directory (a different repo
+# that happens to also have an 'origin' and a 'main' branch) must fail loudly
+# instead of silently operating on someone else's repo.
+EXPECTED_REMOTE="Mmishaaa/WeakAppHandler"
+
+guard_repository() {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "ralph.sh must be run from inside a git working tree." >&2
+        exit 1
+    fi
+    local remote_url
+    remote_url="$(git remote get-url origin 2>/dev/null || true)"
+    if [[ "$remote_url" != *"$EXPECTED_REMOTE"* ]]; then
+        echo "ralph.sh is scoped to '$EXPECTED_REMOTE' but origin is '$remote_url'." >&2
+        echo "Refusing to run — this script pushes branches and merges PRs." >&2
+        echo "If this is intentional (fork/rename), update EXPECTED_REMOTE at the top of ralph.sh." >&2
+        exit 1
+    fi
+}
+
+guard_repository
+
 # Make sure gh (GitHub CLI) is on PATH for this script AND any subprocess it
 # spawns (claude -p, and whatever shell commands that nested agent runs) —
 # a fresh winget install doesn't always propagate to already-open shells.
