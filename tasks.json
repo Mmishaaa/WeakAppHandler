@@ -1,0 +1,927 @@
+{
+  "agent_instructions": {
+    "before_start": [
+      "Прочитай этот файл и git log --oneline -20",
+      "Выбери ОДНУ задачу со статусом pending и наивысшим приоритетом",
+      "Проверь, что все dependencies этой задачи имеют статус done"
+    ],
+    "during_work": [
+      "Работай только над выбранной задачей",
+      "Делай коммиты после каждого логического изменения",
+      "Не трогай код, не связанный с текущей задачей"
+    ],
+    "before_finish": [
+      "Выполни ВСЕ test_steps из задачи",
+      "Меняй status на done ТОЛЬКО после успешного прохождения всех тестов",
+      "Напиши summary в progress.txt",
+      "ЗАПРЕЩЕНО удалять или редактировать задачи — только менять status"
+    ]
+  },
+  "notes": {
+    "source_prd": "docs/Prd.md",
+    "architecture_review": "Декомпозиция и порядок задач проверены агентом code-architect. Ключевые решения, зафиксированные ниже: (1) Ingestor не имеет доступа к БД (§4.2, G2) — исход каждой попытки опроса, включая неудачные, передаётся Processor через отдельное сообщение IngestAttemptRecorded, а не прямой записью в ingest_batches; (2) Auth Service вынесен раньше по дереву зависимостей (сразу после ServiceDefaults), а не в milestone M6, чтобы Gateway/Notification/Ingestor с самого начала строились уже аутентифицированными, а не дорабатывались задним числом; (3) cooldown алертов считается в разрезе (rule, meter, metric) через отдельную таблицу alert_rule_state, а не глобально по правилу — иначе срабатывание в одной комнате подавляло бы алерты в других; (4) три независимых DbContext (Processor/Notification/Auth) без cross-owner внешних ключей, Gateway работает только на чтение без миграций.",
+    "task_count_rationale": "50 задач — верхняя граница диапазона 15-50 из-за реального объёма PRD (7 milestones, 12 фич, 6 сервисов). Задачи сгруппированы близко к границе одной агентской сессии; там, где по PRD было ясно, что объём работы одной фичи не делится естественно без потери смысла, задача оставлена крупнее «идеальных» 30 минут."
+  },
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Настройка конвенций сборки решения: Directory.Build.props, Directory.Packages.props (Central Package Management), .editorconfig, StyleCop/анализаторы, .gitattributes, .env.example",
+      "acceptance_criteria": [
+        "Directory.Build.props включает TreatWarningsAsErrors=true, Nullable=enable, LangVersion latest",
+        "Directory.Packages.props управляет версиями пакетов централизованно для всех будущих проектов",
+        "StyleCop.Analyzers и .NET analyzers подключены глобально; сборка проекта с warning падает"
+      ],
+      "test_steps": [
+        "Шаг 1: Создать тестовый проект с намеренным warning (например, неиспользуемая переменная)",
+        "Шаг 2: Собрать dotnet build — убедиться, что сборка завершается с ошибкой",
+        "Шаг 3: Убрать warning, повторно собрать — сборка проходит успешно"
+      ],
+      "dependencies": [],
+      "status": "done"
+    },
+    {
+      "id": "TASK-002",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Создание структуры solution: WeakAppHandler.sln, отдельные .slnf на каждый сервис, проекты-заглушки Ingestor/Processor(Domain/Application/Infrastructure/Worker)/Gateway(Application/Infrastructure/Api)/Notification(RuleEngine/Api)/Auth, SharedKernel и Contracts (Contracts без внешних зависимостей)",
+      "acceptance_criteria": [
+        "dotnet build WeakAppHandler.sln успешно собирает все проекты-заглушки",
+        "Каждый *.slnf собирает только релевантные для своего сервиса проекты (нужно для path-triggered CI)",
+        "WeakAppHandler.Contracts не имеет package references, кроме системных (BCL)"
+      ],
+      "test_steps": [
+        "Шаг 1: dotnet build WeakAppHandler.sln — должен пройти без ошибок",
+        "Шаг 2: dotnet build ingestor.slnf — должен собрать только Ingestor и его зависимости",
+        "Шаг 3: Проверить .csproj Contracts — отсутствие PackageReference кроме системных"
+      ],
+      "dependencies": ["TASK-001"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-003",
+      "category": "infrastructure",
+      "priority": "high",
+      "description": "Общий проект ServiceDefaults: структурированное логирование (Serilog + correlation id), хуки OpenTelemetry tracing/metrics, экспортёр Prometheus, /health/live и /health/ready с проверкой реальных зависимостей, JWT/JWKS auth seam с dev-bypass переключателем, ролевые политики viewer/admin, базовая конфигурация MassTransit",
+      "acceptance_criteria": [
+        "Любой хост, вызывающий AddServiceDefaults(), получает /health/live, /health/ready, /metrics и структурированные JSON-логи с correlation id",
+        "/health/ready возвращает Unhealthy, если зарегистрированная зависимость (например, заглушка БД) недоступна",
+        "Auth seam поддерживает dev-bypass переключатель для локальной разработки без поднятого Auth Service"
+      ],
+      "test_steps": [
+        "Шаг 1: Подключить ServiceDefaults к тестовому minimal API хосту",
+        "Шаг 2: Запросить /health/live и /health/ready — получить 200 при доступных зависимостях",
+        "Шаг 3: Симулировать недоступность зависимости — /health/ready должен вернуть 503"
+      ],
+      "dependencies": ["TASK-002"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-004",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Вендоринг WeakApp: клонирование и сборка upstream-репозитория, размещение Dockerfile и publish/ в third_party/weak-app/, создание THIRD_PARTY.md с указанием upstream-репозитория, точного коммита и текста лицензии MIT",
+      "acceptance_criteria": [
+        "third_party/weak-app/ содержит Dockerfile и publish/, достаточные для docker build без доступа к интернету",
+        "THIRD_PARTY.md фиксирует URL upstream-репозитория, точный commit hash и полный текст MIT-лицензии",
+        "docker build -t weakapp third_party/weak-app/ завершается успешно"
+      ],
+      "test_steps": [
+        "Шаг 1: git clone https://github.com/nantonov/WeakApp.git во временную папку, зафиксировать commit hash",
+        "Шаг 2: Скопировать Dockerfile и publish/ в third_party/weak-app/, собрать образ",
+        "Шаг 3: docker run -p 8080:8080 образ и curl http://localhost:8080/health — получить успешный ответ"
+      ],
+      "dependencies": ["TASK-001"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-005",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Верификация контракта WeakApp API (PRD §3.5): поднять реальный сервис, выполнить около десяти запросов подряд к GET /meters, зафиксировать docs/weakapp-observed-response.json, обновить PRD §3.2/§7.1, заменив теги [inferred]/[assumed] на подтверждённые наблюдением факты",
+      "acceptance_criteria": [
+        "docs/weakapp-observed-response.json содержит реальный захваченный ответ с точным JSON-casing и формой конверта (массив или обёртка)",
+        "Зафиксированы: количество меторов в ответе, наблюдаемые диапазоны значений, частота 502/504/corrupted, порог и Retry-After для 429",
+        "PRD.md обновлён: теги [inferred]/[assumed] в §3.2/§7.1 заменены на наблюдаемые факты либо явно подтверждены как корректные"
+      ],
+      "test_steps": [
+        "Шаг 1: docker run поднятый образ WeakApp, curl -H X-Api-Key GET /meters десять раз подряд",
+        "Шаг 2: Сохранить один репрезентативный ответ в docs/weakapp-observed-response.json",
+        "Шаг 3: Сверить casing и структуру с PRD §3.2, обновить документ при расхождении"
+      ],
+      "dependencies": ["TASK-004"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-006",
+      "category": "infrastructure",
+      "priority": "high",
+      "description": "Базовый docker-compose: WeakApp + RabbitMQ (management UI) + PostgreSQL, три сети edge/backend/observability, health-check-gated старт; скелеты deploy/postgres/init/ и deploy/rabbitmq/definitions.json",
+      "acceptance_criteria": [
+        "docker compose up поднимает WeakApp, RabbitMQ и PostgreSQL с работающими health checks",
+        "Сети edge/backend/observability созданы; WeakApp и PostgreSQL недоступны напрямую из сети edge",
+        "RabbitMQ management UI доступен на своём порту"
+      ],
+      "test_steps": [
+        "Шаг 1: docker compose up -d, дождаться healthy у всех трёх сервисов",
+        "Шаг 2: docker network inspect — проверить принадлежность контейнеров нужным сетям",
+        "Шаг 3: Открыть RabbitMQ management UI в браузере, залогиниться"
+      ],
+      "dependencies": ["TASK-004"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-007",
+      "category": "infrastructure",
+      "priority": "medium",
+      "description": "Архитектурная документация: docs/architecture.md с диаграммой топологии сервисов; ADR для: разделение обязанностей Ingestor/Processor по записи ingest_batches (через отдельное сообщение IngestAttemptRecorded), владение миграциями (три независимых DbContext, отсутствие cross-owner FK), отсутствие Gateway.Domain, задокументированное ограничение single-replica для SignalR",
+      "acceptance_criteria": [
+        "docs/architecture.md содержит диаграмму сервисов и описание правил коммуникации (только через очередь, кроме Gateway → Ingestor)",
+        "docs/adr/ содержит минимум 4 ADR по перечисленным темам",
+        "ADR по ingest_batches явно описывает, что Ingestor не имеет доступа к БД и передаёт исход попытки через сообщение"
+      ],
+      "test_steps": [
+        "Шаг 1: Прочитать docs/architecture.md — сверить с §4 PRD",
+        "Шаг 2: Открыть каждый ADR — проверить наличие контекста, решения и последствий",
+        "Шаг 3: Убедиться, что ни один ADR не противоречит §4.3 PRD (правила коммуникации)"
+      ],
+      "dependencies": ["TASK-002", "TASK-003"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-008",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Auth Service: схема БД (users, service_clients), EF Core миграции, seed viewer/admin пользователей и machine-client со scope ingestion:admin, учётные данные задокументированы в README",
+      "acceptance_criteria": [
+        "Миграции создают таблицы users и service_clients согласно §7.1",
+        "После применения миграций существуют seed-пользователи ролей viewer и admin, а также один service_client со scope ingestion:admin",
+        "README документирует seed-учётные данные обеих ролей"
+      ],
+      "test_steps": [
+        "Шаг 1: Применить миграции к чистой БД",
+        "Шаг 2: Выполнить SELECT по users и service_clients — убедиться в наличии seed-записей",
+        "Шаг 3: Свериться с README — учётные данные совпадают с данными в БД"
+      ],
+      "dependencies": ["TASK-003"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-009",
+      "category": "security",
+      "priority": "critical",
+      "description": "Auth Service: выпуск RS256-подписанных JWT для user login (email/пароль), эндпоинт JWKS; access token короткоживущий и хранится в памяти SPA, refresh token — в httpOnly cookie",
+      "acceptance_criteria": [
+        "POST /login с корректными данными seed-пользователя возвращает access token и устанавливает httpOnly refresh cookie",
+        "Эндпоинт JWKS отдаёт публичный ключ, которым можно проверить подпись access token",
+        "Токен, подписанный посторонним ключом, не проходит валидацию через JWKS"
+      ],
+      "test_steps": [
+        "Шаг 1: POST /login с seed viewer-учётными данными — получить access token",
+        "Шаг 2: Декодировать JWT, проверить подпись RS256 через ключ из JWKS-эндпоинта",
+        "Шаг 3: Подделать токен с другим ключом — валидация должна отклонить его"
+      ],
+      "dependencies": ["TASK-008"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-010",
+      "category": "security",
+      "priority": "critical",
+      "description": "Auth Service: client-credentials grant для машинных JWT со scope ingestion:admin, используемых на единственном синхронном межсервисном пути Gateway → Ingestor",
+      "acceptance_criteria": [
+        "POST /token с client_id/client_secret seed service_client возвращает JWT со scope ingestion:admin",
+        "Неверный client_secret отклоняется с ошибкой аутентификации",
+        "Выданный токен проходит валидацию через тот же JWKS-эндпоинт, что и user-токены"
+      ],
+      "test_steps": [
+        "Шаг 1: Запросить токен через client-credentials grant с seed-учётными данными сервиса",
+        "Шаг 2: Проверить claim scope=ingestion:admin в токене",
+        "Шаг 3: Повторить запрос с неверным secret — убедиться в отказе"
+      ],
+      "dependencies": ["TASK-008"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-011",
+      "category": "integration",
+      "priority": "critical",
+      "description": "Shared message contracts: ReadingsIngested и IngestAttemptRecorded (envelope: messageId, fetchedAt, sourceLatencyMs, batchId, outcome, httpStatus, durationMs, readingCount, errorMessage), ReadingStored (meterId, location, meterType, metricCode, value, previousValue, isChanged, observedAt), AlertRaised/AlertResolved — проект зависит только от BCL",
+      "acceptance_criteria": [
+        "Все типы сообщений определены как immutable record в WeakAppHandler.Contracts без внешних зависимостей",
+        "IngestAttemptRecorded и ReadingsIngested, относящиеся к одной попытке опроса, разделяют один и тот же batchId",
+        "ReadingStored содержит все поля, необходимые для оценки правил без обращения к БД (meterId, location, meterType, metricCode, value, previousValue, isChanged, observedAt)"
+      ],
+      "test_steps": [
+        "Шаг 1: Просмотреть исходники Contracts — убедиться в отсутствии PackageReference кроме системных",
+        "Шаг 2: Написать unit-тест сериализации каждого контракта в JSON и обратно",
+        "Шаг 3: Проверить, что тестовая пара IngestAttemptRecorded и ReadingsIngested имеет одинаковый batchId"
+      ],
+      "dependencies": ["TASK-002"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-012",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Базовая топология RabbitMQ/MassTransit: exchange readings.exchange, routing keys readings.ingested и readings.attempt, durable очереди с persistent-сообщениями, dead-letter очередь на исчерпание retry",
+      "acceptance_criteria": [
+        "Очереди и exchange создаются декларативно (конфигурация MassTransit или definitions.json) и видны в RabbitMQ management UI",
+        "Сообщение, помеченное persistent, переживает перезапуск RabbitMQ без потери",
+        "Сообщение, для которого потребитель постоянно падает, оказывается в dead-letter очереди после исчерпания retry"
+      ],
+      "test_steps": [
+        "Шаг 1: Опубликовать тестовое persistent-сообщение, перезапустить контейнер RabbitMQ, убедиться что сообщение сохранилось",
+        "Шаг 2: Настроить тестовый консьюмер, который всегда бросает исключение, отправить сообщение",
+        "Шаг 3: Проверить в management UI, что сообщение появилось в dead-letter очереди"
+      ],
+      "dependencies": ["TASK-011", "TASK-006"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-013",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Core-схема БД Processor (CoreDbContext): meters, metrics (+ seed-справочник), readings (композитный индекс meter_id+metric_code+observed_at DESC, BRIN на observed_at), meter_current_state; EF Core миграции",
+      "acceptance_criteria": [
+        "Миграции создают все таблицы и индексы согласно §7.1, включая уникальный констрейнт (location, meter_type) на meters",
+        "Таблица metrics содержит seed-записи energy, co2, pm25, humidity, motion_detected с единицами измерения и value_kind",
+        "BRIN-индекс на readings.observed_at создан и виден в информационной схеме БД"
+      ],
+      "test_steps": [
+        "Шаг 1: Применить миграции к чистой PostgreSQL",
+        "Шаг 2: Выполнить проверку структуры таблицы readings в psql — убедиться в наличии композитного и BRIN индексов",
+        "Шаг 3: SELECT * FROM metrics — убедиться в наличии всех пяти seed-строк"
+      ],
+      "dependencies": ["TASK-003"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-014",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Pipeline-схема БД Processor: ingest_batches, processed_messages, readings_hourly (таргет для будущего rollup); общий Testcontainers-harness (tests/Shared/WeakAppHandler.IntegrationTesting) для PostgreSQL и RabbitMQ, переиспользуемый в milestones M2-M4",
+      "acceptance_criteria": [
+        "Миграции создают ingest_batches, processed_messages и readings_hourly согласно §7.1/§7.3",
+        "Harness поднимает реальные контейнеры PostgreSQL и RabbitMQ через Testcontainers и переиспользуется без копирования кода",
+        "Пример unit-теста с harness проходит зелёным в CI-подобной среде"
+      ],
+      "test_steps": [
+        "Шаг 1: Применить миграции, проверить структуру трёх новых таблиц",
+        "Шаг 2: Написать пример интеграционного теста, использующего harness, запустить его",
+        "Шаг 3: Убедиться, что контейнеры Testcontainers поднимаются и уничтожаются автоматически после теста"
+      ],
+      "dependencies": ["TASK-013"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-015",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Ingestor: HTTP-клиент WeakApp с resilience pipeline на базе Polly — таймаут-бюджет короче интервала опроса, retry с exponential backoff и jitter, circuit breaker, явная обработка HTTP 429 с точным соблюдением Retry-After",
+      "acceptance_criteria": [
+        "При HTTP 502/504 запрос повторяется согласно политике retry с exponential backoff и jitter",
+        "При HTTP 429 с Retry-After: 30 ни один запрос не выполняется минимум 30 секунд",
+        "При превышении порога отказов circuit breaker переходит в состояние Open и последующие вызовы не идут к WeakApp"
+      ],
+      "test_steps": [
+        "Шаг 1: Направить клиент на мок-сервер, возвращающий 502 — убедиться в повторных попытках с задержками",
+        "Шаг 2: Смоделировать ответ 429 с Retry-After: 30 — засечь время до следующего запроса",
+        "Шаг 3: Смоделировать серию отказов, превышающую порог — убедиться, что breaker открылся"
+      ],
+      "dependencies": ["TASK-005", "TASK-011"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-016",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Ingestor: цикл опроса как BackgroundService на конфигурируемом интервале (по умолчанию 10 сек), публикация IngestAttemptRecorded на каждую попытку (успех или ошибка) и ReadingsIngested при успешном ответе с общим batchId; retry-бюджет не превышает интервал опроса, пропуск цикла вместо наложения опросов",
+      "acceptance_criteria": [
+        "Каждая попытка опроса, независимо от исхода, порождает опубликованное сообщение IngestAttemptRecorded",
+        "Только успешные, корректно распарсенные ответы дополнительно порождают ReadingsIngested с тем же batchId",
+        "При искусственно долгих retries следующий цикл опроса пропускается, а не запускается параллельно"
+      ],
+      "test_steps": [
+        "Шаг 1: Запустить Ingestor против мок-WeakApp, возвращающего успешные ответы — проверить в очереди оба типа сообщений с одинаковым batchId",
+        "Шаг 2: Смоделировать ответ вида ошибки корраптед-данных под application/json — убедиться, что ReadingsIngested не публикуется, а IngestAttemptRecorded с outcome=corrupted публикуется",
+        "Шаг 3: Замедлить мок-сервер так, чтобы retries заняли больше интервала — убедиться в пропуске цикла, а не наложении запросов"
+      ],
+      "dependencies": ["TASK-015", "TASK-012"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-017",
+      "category": "security",
+      "priority": "high",
+      "description": "Ingestor: admin REST — GET /api/v1/ingestion/status, POST /api/v1/ingestion/trigger, PUT /api/v1/ingestion/config, защищённые machine JWT со scope ingestion:admin; in-memory состояние circuit breaker и счётчиков ошибок по причинам",
+      "acceptance_criteria": [
+        "GET /api/v1/ingestion/status возвращает последний исход опроса, счётчики ошибок по причинам, состояние circuit breaker и текущий интервал",
+        "POST /api/v1/ingestion/trigger инициирует опрос в течение секунды и возвращает исход батча",
+        "Запрос без валидного machine JWT со scope ingestion:admin отклоняется с 401/403"
+      ],
+      "test_steps": [
+        "Шаг 1: Запросить статус без токена — получить 401",
+        "Шаг 2: Получить machine JWT из Auth Service, вызвать /trigger — убедиться, что опрос выполнен в течение секунды",
+        "Шаг 3: Вызвать /status — сверить содержимое ответа с реальным состоянием Ingestor"
+      ],
+      "dependencies": ["TASK-016", "TASK-010"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-018",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Processor: консьюмер ReadingsIngested/IngestAttemptRecorded с идемпотентностью через processed_messages (дубликат messageId подтверждается и отбрасывается); запись ingest_batches (включая reading_count=0 для неудач) в одной транзакции со связанными readings",
+      "acceptance_criteria": [
+        "Повторная доставка одного и того же messageId не создаёт вторую запись в ingest_batches и не дублирует readings",
+        "IngestAttemptRecorded с outcome, отличным от success, порождает строку ingest_batches с reading_count=0 без создания readings",
+        "Запись ingest_batches и связанных readings происходит атомарно в одной транзакции"
+      ],
+      "test_steps": [
+        "Шаг 1: Опубликовать одно и то же сообщение дважды — проверить единственную запись в БД",
+        "Шаг 2: Опубликовать IngestAttemptRecorded с outcome=http_error — проверить запись в ingest_batches без readings",
+        "Шаг 3: Искусственно прервать обработку на середине — убедиться, что частичные данные не сохранились (транзакционность)"
+      ],
+      "dependencies": ["TASK-014", "TASK-016"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-019",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Processor: авто-регистрация meters ((location, meterType) как естественный идентификатор, обновление last_seen_at при каждом успешном опросе, содержащем данный метр), нормализация payload в плоские metric-строки с единым маппингом полей payload в metric_code (например, motionDetected в motion_detected)",
+      "acceptance_criteria": [
+        "Неизвестная комбинация (location, meterType) автоматически создаёт новую запись meters без миграции",
+        "meters.last_seen_at обновляется при каждом успешном опросе, содержащем данный метр",
+        "air_quality payload порождает три отдельные строки readings (co2, pm25, humidity) с общим observed_at и корректным metric_code"
+      ],
+      "test_steps": [
+        "Шаг 1: Отправить сообщение с новой комбинацией location/meterType — проверить создание строки в meters",
+        "Шаг 2: Отправить второе сообщение для того же метра — проверить обновление last_seen_at",
+        "Шаг 3: Отправить air_quality payload — проверить наличие трёх строк readings с общим observed_at"
+      ],
+      "dependencies": ["TASK-018"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-020",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Processor: сравнение нового значения с meter_current_state (флаг is_changed), upsert текущего состояния (value/previous_value/observed_at/changed_at), публикация ReadingStored с value, previousValue и isChanged",
+      "acceptance_criteria": [
+        "Повторный идентичный опрос создаёт строки readings с is_changed=false, при этом meter_current_state.observed_at всё равно продвигается",
+        "meter_current_state всегда отражает самое последнее значение для каждой пары (meter, metric)",
+        "ReadingStored публикуется для каждой обработанной метрики с корректными value/previousValue/isChanged, без необходимости обращения консьюмера к БД"
+      ],
+      "test_steps": [
+        "Шаг 1: Отправить два одинаковых последовательных опроса — проверить is_changed=false во второй раз, наблюдать продвижение observed_at",
+        "Шаг 2: Отправить опрос с изменённым значением — проверить is_changed=true и обновление previous_value",
+        "Шаг 3: Подписаться на очередь readings.stored — убедиться в получении события с ожидаемыми полями"
+      ],
+      "dependencies": ["TASK-019"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-021",
+      "category": "integration",
+      "priority": "medium",
+      "description": "Processor: REST GET /api/v1/processing/stats (обработано/дедуплицировано/dead-lettered), защищённый machine JWT",
+      "acceptance_criteria": [
+        "Эндпоинт возвращает актуальные счётчики processed/deduplicated/dead-lettered с момента запуска сервиса",
+        "Запрос без валидного machine JWT отклоняется",
+        "Значения счётчиков корректно увеличиваются после обработки тестовых сообщений"
+      ],
+      "test_steps": [
+        "Шаг 1: Запросить /stats без токена — получить отказ",
+        "Шаг 2: Обработать несколько сообщений, включая дубликат — запросить /stats с токеном",
+        "Шаг 3: Сверить значения счётчиков с ожидаемым количеством операций"
+      ],
+      "dependencies": ["TASK-018"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-022",
+      "category": "integration",
+      "priority": "high",
+      "description": "M2 сквозные интеграционные тесты (Testcontainers): проверка acceptance criteria F1-F3 — сценарии 502/429/corrupted/unauthorized на стороне Ingestor, дублирующая доставка, обработка батча из восемнадцати метрик в пределах интервала опроса",
+      "acceptance_criteria": [
+        "Тест воспроизводит каждый из сценариев §3.3 (502, corrupted, 429, unauthorized) и проверяет соответствующий outcome в ingest_batches",
+        "Тест дублирующей доставки подтверждает отсутствие дублей в readings",
+        "Тест на восемнадцати метриках подтверждает завершение обработки батча значительно быстрее десятисекундного интервала"
+      ],
+      "test_steps": [
+        "Шаг 1: Поднять Testcontainers-окружение (PostgreSQL+RabbitMQ) и мок WeakApp с управляемым поведением",
+        "Шаг 2: Прогнать сценарии отказов по очереди, проверяя ingest_batches.outcome",
+        "Шаг 3: Замерить время обработки батча из восемнадцати метрик, убедиться в запасе по времени относительно интервала"
+      ],
+      "dependencies": ["TASK-017", "TASK-020", "TASK-021"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-023",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Gateway: проект на HotChocolate, read-only DbContext (NoTracking) поверх core-схемы; GraphQL-запросы meters (текущие значения, фильтр по location/meterType) и readings (фильтрация по meter/metric/location/type/времени, Relay-пагинация с page size до 100, projection в SQL)",
+      "acceptance_criteria": [
+        "Запрос readings для одной локации за один час возвращает только соответствующие строки, корректно пагинированные, со стабильным курсором",
+        "Запрос page size выше 100 возвращает ошибку валидации, а не большой результат",
+        "GraphQL field selection транслируется в узкий SQL через projection, без over-fetching"
+      ],
+      "test_steps": [
+        "Шаг 1: Выполнить запрос meters с фильтром по location — сверить результат с БД",
+        "Шаг 2: Выполнить запрос readings с курсорной пагинацией — пройти несколько страниц, проверить стабильность курсора",
+        "Шаг 3: Запросить pageSize=1000 — убедиться в ошибке валидации"
+      ],
+      "dependencies": ["TASK-020", "TASK-003"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-024",
+      "category": "functional",
+      "priority": "high",
+      "description": "Gateway: GraphQL-запрос aggregations с бакетами minute/hour/day через SQL date_trunc/generate_series, группировка по location/meterType/metric, явное включение бакетов с нулевыми показаниями",
+      "acceptance_criteria": [
+        "Запрос aggregations с группировкой по location за 24 часовых бакета возвращает ровно 24 бакета на локацию, включая пустые",
+        "Агрегация выполняется на стороне SQL (GROUP BY + date_trunc/generate_series), а не через группировку в памяти после полной выборки",
+        "Поддерживаются avg/min/max/sum/count согласно запрошенным полям"
+      ],
+      "test_steps": [
+        "Шаг 1: Запросить агрегацию за период без данных в части часов — убедиться в наличии пустых бакетов с нулевыми значениями",
+        "Шаг 2: Просмотреть сгенерированный SQL (логирование EF Core) — убедиться в отсутствии client-side группировки",
+        "Шаг 3: Сравнить агрегированные значения с ручным расчётом по сырым readings"
+      ],
+      "dependencies": ["TASK-023"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-025",
+      "category": "security",
+      "priority": "high",
+      "description": "Gateway: ограничения глубины/сложности GraphQL-запросов, отключение introspection вне Development, persisted queries, первичная фиксация снапшота schema.graphql в CI (будет дополнен после добавления subscription/alerts в TASK-032)",
+      "acceptance_criteria": [
+        "Намеренно глубоко вложенный запрос отклоняется с ошибкой сложности",
+        "Introspection недоступен в production-подобной конфигурации, но доступен в Development",
+        "schema.graphql закоммичен в репозиторий; CI падает при расхождении со сгенерированной на лету схемой"
+      ],
+      "test_steps": [
+        "Шаг 1: Выполнить глубоко вложенный запрос — убедиться в отклонении с ошибкой сложности",
+        "Шаг 2: Выполнить introspection-запрос в production-подобной конфигурации — получить отказ; повторить в Development — получить успех",
+        "Шаг 3: Изменить схему без обновления снапшота — прогнать CI-проверку схемы, убедиться в падении"
+      ],
+      "dependencies": ["TASK-023"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-026",
+      "category": "integration",
+      "priority": "medium",
+      "description": "Gateway: REST — проксирование ingestion/processing статуса (machine JWT к Ingestor/Processor), CSV-экспорт readings с потоковой отдачей без буферизации всего результата в памяти, OpenAPI-документация, доступная через UI в Development",
+      "acceptance_criteria": [
+        "GET /api/v1/readings/export отдаёт CSV потоково с константным потреблением памяти при большом объёме данных",
+        "Проксируемые ingestion/processing статусы возвращают те же данные, что и прямые вызовы к Ingestor/Processor",
+        "OpenAPI-спецификация доступна и просматриваема через Swagger UI в Development"
+      ],
+      "test_steps": [
+        "Шаг 1: Запросить экспорт большого диапазона readings, замерить память процесса во время генерации",
+        "Шаг 2: Сравнить ответ проксирующего эндпоинта с прямым вызовом к Ingestor/Processor",
+        "Шаг 3: Открыть Swagger UI в Development — убедиться, что все REST-эндпоинты Gateway документированы"
+      ],
+      "dependencies": ["TASK-017", "TASK-021", "TASK-010"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-027",
+      "category": "functional",
+      "priority": "high",
+      "description": "Notification: схема БД alert_rules, alerts, alert_rule_state (для cooldown в разрезе rule+meter+metric, а не только rule) в отдельном AlertingDbContext; денормализация location/meterType/metricCode на alerts без cross-owner FK на meters; seed-правила из PRD применяются идемпотентно",
+      "acceptance_criteria": [
+        "Миграции создают alert_rules, alerts, alert_rule_state согласно §7.1, дополненному per-meter cooldown; alerts не содержит FK на таблицы, принадлежащие Processor",
+        "Повторный запуск сервиса не дублирует seed-правила (co2>1000/1400, pm25>35, humidity>70, motionDetected=true в Garage)",
+        "alerts содержит собственные колонки location/meterType/metricCode, достаточные для фильтрации без join в core-схему"
+      ],
+      "test_steps": [
+        "Шаг 1: Применить миграции к чистой БД, проверить отсутствие FK на meters/metrics",
+        "Шаг 2: Запустить сервис дважды подряд — проверить, что seed-правил ровно пять",
+        "Шаг 3: Вставить тестовый alert — убедиться, что location/meterType/metricCode заполнены напрямую, без join"
+      ],
+      "dependencies": ["TASK-003"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-028",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Notification: чистый компонент RuleEngine (без EF/DI/IO/системных часов) — transition-triggered срабатывание, hysteresis с корректной обработкой boolean-метрик и операторов lt/lte, cooldown в разрезе rule+meter+metric; unit-тесты на граничные случаи (значение ровно на пороге, ровно на границе hysteresis)",
+      "acceptance_criteria": [
+        "Метрика, поднимающаяся выше порога, порождает ровно один сигнал срабатывания независимо от количества последующих показаний выше порога",
+        "Значение, колеблющееся внутри полосы hysteresis, не порождает дополнительных срабатываний",
+        "Проект RuleEngine не имеет package/project references — архитектурный тест подтверждает чистоту"
+      ],
+      "test_steps": [
+        "Шаг 1: Прогнать unit-тесты с серией значений, пересекающих порог многократно с колебаниями внутри hysteresis-полосы",
+        "Шаг 2: Прогнать граничные тесты: значение точно на пороге, значение точно на границе hysteresis, boolean-метрика, операторы lt/lte",
+        "Шаг 3: Прогнать архитектурный тест зависимостей проекта RuleEngine — убедиться в отсутствии ссылок на EF/DI/IO"
+      ],
+      "dependencies": ["TASK-027"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-029",
+      "category": "functional",
+      "priority": "critical",
+      "description": "Notification: консьюмер ReadingStored, применение RuleEngine к каждому подходящему правилу с состоянием rule+meter+metric из alert_rule_state, персист alerts (active/resolved) и явная резолюция с временем и значением, диспетчеризация alert-событий in-process без отдельного RabbitMQ exchange",
+      "acceptance_criteria": [
+        "Пересечение порога создаёт активный alert; возврат значения ниже порога минус hysteresis-маржа резолвит alert с resolved_at/resolved_value",
+        "Cooldown применяется в разрезе конкретного метра, а не глобально по правилу — срабатывание в одной комнате не подавляет срабатывания в другой",
+        "Alerts переживают перезапуск сервиса; лента восстанавливается из БД"
+      ],
+      "test_steps": [
+        "Шаг 1: Опубликовать ReadingStored с превышением порога для метра A — проверить создание active alert",
+        "Шаг 2: Опубликовать breach для метра B того же правила в течение cooldown метра A — убедиться, что alert для B создаётся, так как cooldown не глобальный",
+        "Шаг 3: Опубликовать возврат значения ниже порога-hysteresis для метра A — проверить переход alert в resolved"
+      ],
+      "dependencies": ["TASK-028", "TASK-020"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-030",
+      "category": "functional",
+      "priority": "medium",
+      "description": "Notification: REST CRUD /api/v1/alert-rules с FluentValidation (валидный operator, cooldown не отрицательный, hysteresis в разумном диапазоне), доступ только для роли admin",
+      "acceptance_criteria": [
+        "Создание правила с невалидным operator или отрицательным cooldown возвращает 400 с field-level сообщением",
+        "Запрос от пользователя без роли admin отклоняется с 403",
+        "CRUD-операции корректно отражаются в alert_rules и не дублируют seed-правила"
+      ],
+      "test_steps": [
+        "Шаг 1: Создать правило с некорректным operator — получить 400 с описанием поля",
+        "Шаг 2: Выполнить запрос с токеном роли viewer — получить 403",
+        "Шаг 3: Создать/обновить/удалить правило с токеном admin — сверить изменения в БД"
+      ],
+      "dependencies": ["TASK-027", "TASK-009"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-031",
+      "category": "security",
+      "priority": "high",
+      "description": "Notification: SignalR AlertsHub, отклонение анонимных подключений (обязателен валидный JWT), пуш событий alert raised/resolved подключённым клиентам",
+      "acceptance_criteria": [
+        "Подключение без JWT отклоняется хабом",
+        "Подключённый клиент получает alert raised/resolved в течение двух секунд после сохранения соответствующего alert",
+        "Одно и то же событие не отправляется дважды одному клиенту"
+      ],
+      "test_steps": [
+        "Шаг 1: Подключиться к хабу без токена — убедиться в отказе",
+        "Шаг 2: Подключиться с валидным JWT, спровоцировать alert — замерить время до получения события клиентом",
+        "Шаг 3: Спровоцировать resolve — убедиться в получении отдельного события resolved"
+      ],
+      "dependencies": ["TASK-029", "TASK-009"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-032",
+      "category": "functional",
+      "priority": "high",
+      "description": "Gateway: GraphQL subscription onReadingStored(location, meterType), потребляющая события из RabbitMQ, а не из БД; запросы alerts (пагинация, фильтр по статусу/severity/location/времени) и alertRules; финализация и повторная фиксация снапшота schema.graphql",
+      "acceptance_criteria": [
+        "Подписанный клиент получает событие onReadingStored в течение двух секунд после сохранения соответствующего reading",
+        "Запрос alerts с фильтром по status/severity/location возвращает только соответствующие записи с корректной пагинацией",
+        "Обновлённый schema.graphql закоммичен и проходит CI-проверку схемы"
+      ],
+      "test_steps": [
+        "Шаг 1: Подписаться на onReadingStored с фильтром по location, спровоцировать новое чтение — замерить задержку доставки",
+        "Шаг 2: Запросить alerts с комбинацией фильтров — сверить результат с БД",
+        "Шаг 3: Прогнать CI-проверку схемы после изменений — убедиться в отсутствии расхождений"
+      ],
+      "dependencies": ["TASK-025", "TASK-029"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-033",
+      "category": "infrastructure",
+      "priority": "medium",
+      "description": "Frontend: тулчейн — Vite + React 19 + TypeScript, ESLint, Apollo Client, GraphQL codegen из schema.graphql; скелет feature-sliced структуры папок (app/features/entities/shared/gql)",
+      "acceptance_criteria": [
+        "npm run build успешно собирает пустое приложение без ошибок TypeScript",
+        "GraphQL codegen генерирует типы и хуки из закоммиченного schema.graphql в src/gql",
+        "Структура папок соответствует feature-sliced подходу (app/features/entities/shared)"
+      ],
+      "test_steps": [
+        "Шаг 1: npm install && npm run build — убедиться в успешной сборке",
+        "Шаг 2: npm run codegen — проверить сгенерированные файлы в src/gql",
+        "Шаг 3: npm run lint — убедиться в отсутствии ошибок конфигурации ESLint"
+      ],
+      "dependencies": ["TASK-032"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-034",
+      "category": "ui",
+      "priority": "high",
+      "description": "Frontend: app shell — роутинг, layout, единая цветовая семантика (один акцент плюс severity-шкала, зарезервированная исключительно под severity), a11y-примитивы (видимый фокус, ARIA live region для алертов), универсальный компонент четырёх состояний AsyncBoundary (loading skeleton/empty/error+retry/loaded) со staleness-индикатором",
+      "acceptance_criteria": [
+        "AsyncBoundary корректно отображает все четыре состояния для тестового запроса, при этом loading реализован как skeleton, а не спиннер-оверлей",
+        "При ошибке запроса последние хорошие данные остаются видимыми со staleness-индикатором, экран не становится пустым",
+        "Клавиатурная навигация достигает всех интерактивных элементов shell; фокус визуально виден"
+      ],
+      "test_steps": [
+        "Шаг 1: Смонтировать AsyncBoundary с моком запроса в каждом из четырёх состояний — визуально проверить каждое",
+        "Шаг 2: Смоделировать ошибку после успешной загрузки — убедиться, что старые данные остаются видимыми с пометкой устаревания",
+        "Шаг 3: Пройти по интерфейсу только клавиатурой (Tab) — убедиться в достижимости всех элементов управления и видимости фокуса"
+      ],
+      "dependencies": ["TASK-033"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-035",
+      "category": "integration",
+      "priority": "high",
+      "description": "Frontend: realtime-клиент — SignalR (AlertsHub) и graphql-ws (onReadingStored), автопереподключение с backoff и видимым статусом соединения, рефетч алертов при реконнекте для устранения пропущенных событий, строгое разделение каналов, чтобы одно логическое событие доставлялось в компонент только одним каналом",
+      "acceptance_criteria": [
+        "При разрыве соединения UI отображает статус disconnected, затем reconnecting, затем connected без действий пользователя",
+        "После реконнекта клиент рефетчит алерты, чтобы не потерять пропущенные события",
+        "Ни одно логическое событие не обрабатывается одновременно и SignalR-хендлером, и GraphQL-подпиской в одном компоненте"
+      ],
+      "test_steps": [
+        "Шаг 1: Разорвать сетевое соединение в DevTools, наблюдать смену статуса соединения в UI",
+        "Шаг 2: Восстановить соединение, спровоцировать alert во время разрыва — после реконнекта убедиться, что алерт появился через рефетч",
+        "Шаг 3: Проверить код обработчиков — подтвердить отсутствие дублирующей обработки одного события в двух каналах"
+      ],
+      "dependencies": ["TASK-034", "TASK-031", "TASK-032"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-036",
+      "category": "ui",
+      "priority": "high",
+      "description": "Frontend: экран Overview — плитки метров, сгруппированные по локациям, с последним значением/единицей/временем с последнего обновления; цветовое состояние (normal/warning/critical) выводится из активных алертов; шапка со сводкой (количество отчитывающихся метров, время последнего успешного опроса, число активных алертов)",
+      "acceptance_criteria": [
+        "Каждая плитка отображает актуальное значение, единицу измерения и относительное время обновления в формате \"N мин назад\"",
+        "Цвет плитки меняется на warning/critical при наличии соответствующего активного алерта для этого метра",
+        "Шапка отображает корректное количество активных алертов, синхронизированное с экраном Alerts"
+      ],
+      "test_steps": [
+        "Шаг 1: Открыть Overview с бэкендом, содержащим тестовые данные — визуально сверить значения плиток с БД",
+        "Шаг 2: Спровоцировать alert для одного метра — убедиться в смене цвета соответствующей плитки",
+        "Шаг 3: Сравнить счётчик активных алертов в шапке с количеством записей на экране Alerts"
+      ],
+      "dependencies": ["TASK-035"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-037",
+      "category": "ui",
+      "priority": "medium",
+      "description": "Frontend: компоненты графиков — line/area chart с min/max диапазоном (для co2/pm25/humidity), bar chart для количества событий motion; адаптивность и читаемость от 360px",
+      "acceptance_criteria": [
+        "Line/area chart корректно отображает min/max band поверх средней линии",
+        "Bar chart корректно агрегирует количество motion-событий по временным интервалам",
+        "Графики остаются читаемыми без наложения подписей при ширине вьюпорта 360px"
+      ],
+      "test_steps": [
+        "Шаг 1: Отрендерить line chart с тестовыми данными co2, включающими min/max band — визуально проверить",
+        "Шаг 2: Отрендерить bar chart с тестовыми motion-событиями — сверить подсчёт с исходными данными",
+        "Шаг 3: Сжать вьюпорт до 360px — убедиться в отсутствии обрезанных или наложенных подписей"
+      ],
+      "dependencies": ["TASK-034"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-038",
+      "category": "ui",
+      "priority": "high",
+      "description": "Frontend: экран History — селектор метрики/локации и периода (час/день/неделя), агрегация в соответствии с типом метрики: sum и avg для energy; avg с min/max band для co2/pm25/humidity; count для motion",
+      "acceptance_criteria": [
+        "Смена периода или метрики перезапрашивает данные и обновляет график без перезагрузки страницы",
+        "Для energy отображаются одновременно sum и avg за выбранный период",
+        "Для motion отображается count событий в виде bar chart, соответствующий выбранному периоду"
+      ],
+      "test_steps": [
+        "Шаг 1: Выбрать метрику energy и период день — проверить отображение sum и avg",
+        "Шаг 2: Переключиться на co2 — проверить отображение line chart с min/max band",
+        "Шаг 3: Переключиться на motion — проверить bar chart с корректным подсчётом событий"
+      ],
+      "dependencies": ["TASK-037", "TASK-024"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-039",
+      "category": "ui",
+      "priority": "high",
+      "description": "Frontend: экран Alerts — лента в обратном хронологическом порядке (severity, локация, метрика, значение срабатывания, длительность для resolved), живые обновления через realtime-клиент с визуальным выделением новых записей, фильтры по статусу и severity",
+      "acceptance_criteria": [
+        "Новый alert, пришедший через realtime-канал, появляется в верхней части ленты с визуальным выделением без перезагрузки страницы",
+        "Фильтр по статусу/severity корректно сужает список отображаемых записей",
+        "Resolved-записи отображают длительность от triggered_at до resolved_at"
+      ],
+      "test_steps": [
+        "Шаг 1: Открыть экран Alerts, спровоцировать новый alert — убедиться в появлении с подсветкой",
+        "Шаг 2: Применить фильтр по severity=critical — убедиться, что список сузился корректно",
+        "Шаг 3: Дождаться resolve — убедиться, что запись отображает корректную длительность"
+      ],
+      "dependencies": ["TASK-035", "TASK-032"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-040",
+      "category": "ui",
+      "priority": "high",
+      "description": "Frontend: экран Administration (только admin) — CRUD alert-правил с инлайн-валидацией, панель ingestion (последний исход опроса, счётчики ошибок по причинам, состояние circuit breaker, управление интервалом опроса, кнопка ручного триггера)",
+      "acceptance_criteria": [
+        "Форма создания/редактирования правила показывает inline-ошибки валидации до отправки на сервер",
+        "Кнопка ручного триггера инициирует опрос и отображает результирующий исход батча",
+        "Панель ingestion отображает актуальное состояние circuit breaker и обновляется после ручного триггера"
+      ],
+      "test_steps": [
+        "Шаг 1: Попытаться создать правило с невалидным оператором — убедиться в inline-ошибке до отправки",
+        "Шаг 2: Нажать кнопку ручного триггера — дождаться отображения результата опроса",
+        "Шаг 3: Изменить интервал опроса через панель — убедиться, что изменение отражается в статусе Ingestor"
+      ],
+      "dependencies": ["TASK-035", "TASK-030", "TASK-026"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-041",
+      "category": "security",
+      "priority": "medium",
+      "description": "Frontend: аутентификация — форма логина, хранение access token в памяти (не в localStorage), прозрачное обновление через refresh-cookie, скрытие маршрута Administration для роли viewer и блокировка прямого перехода по URL",
+      "acceptance_criteria": [
+        "После логина access token хранится только в памяти приложения, а не в localStorage/sessionStorage",
+        "Истечение access token приводит к прозрачному refresh без видимого прерывания работы пользователя",
+        "Пользователь с ролью viewer не видит пункт меню Administration и получает отказ при прямом переходе по URL маршрута"
+      ],
+      "test_steps": [
+        "Шаг 1: Залогиниться, проверить DevTools Application storage — убедиться в отсутствии access token в localStorage",
+        "Шаг 2: Дождаться истечения access token (или уменьшить TTL в тестовой среде) — убедиться в бесшовном обновлении",
+        "Шаг 3: Залогиниться как viewer, вручную перейти на маршрут /administration — убедиться в редиректе или отказе"
+      ],
+      "dependencies": ["TASK-040", "TASK-009"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-042",
+      "category": "security",
+      "priority": "critical",
+      "description": "Финализация JWT-валидации и ролевых политик через ServiceDefaults во всех сервисах-хостах (Gateway/Notification/Ingestor), отключение dev-bypass в production-подобной конфигурации; CORS ограничен origin фронтенда во всех публичных API",
+      "acceptance_criteria": [
+        "Запросы без валидного токена отклоняются с 401 во всех сервисах, использующих ServiceDefaults auth seam",
+        "Токены без нужной роли отклоняются с 403 на защищённых admin-эндпоинтах",
+        "CORS-политика разрешает только настроенный origin фронтенда; запрос с постороннего origin отклоняется браузером"
+      ],
+      "test_steps": [
+        "Шаг 1: Выполнить запросы без токена к защищённым эндпоинтам каждого сервиса — убедиться в 401",
+        "Шаг 2: Выполнить admin-запрос с токеном роли viewer — убедиться в 403",
+        "Шаг 3: Выполнить cross-origin fetch с постороннего origin — убедиться в блокировке CORS"
+      ],
+      "dependencies": ["TASK-041"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-043",
+      "category": "security",
+      "priority": "high",
+      "description": "Least-privilege учётные данные: RabbitMQ (отдельный vhost, по одному пользователю на сервис с минимальными правами — Ingestor только publish в readings.exchange, Processor только consume своей очереди, Gateway только consume; guest удалён) и PostgreSQL (gateway_ro только SELECT, отдельные роли на запись для Processor/Notification/Auth), применённые как init-скрипты в compose",
+      "acceptance_criteria": [
+        "Подключение под учётной записью guest к RabbitMQ невозможно, так как пользователь удалён",
+        "Роль gateway_ro физически не может выполнить INSERT/UPDATE/DELETE, что проверяется попыткой и отказом БД",
+        "Каждый сервис подключается под собственной учётной записью с правами, ограниченными его обязанностями"
+      ],
+      "test_steps": [
+        "Шаг 1: Попытаться подключиться к RabbitMQ под guest/guest — убедиться в отказе",
+        "Шаг 2: Подключиться к PostgreSQL под gateway_ro и выполнить INSERT — убедиться в отказе БД",
+        "Шаг 3: Проверить права каждой роли или пользователя по списку минимально необходимых операций"
+      ],
+      "dependencies": ["TASK-042", "TASK-012", "TASK-006"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-044",
+      "category": "infrastructure",
+      "priority": "high",
+      "description": "OpenTelemetry-трассировка сквозного пути (HTTP-вызов к WeakApp → publish → consume → persist → notify) с propagation trace id через заголовки сообщений; доменные метрики каждого сервиса (poll outcomes/latency, circuit state, queue rate, processing latency, dedup count, DLQ depth, alerts raised/resolved, GraphQL request duration) поверх ServiceDefaults",
+      "acceptance_criteria": [
+        "Одно чтение можно проследить целиком по единому trace id от HTTP-вызова к WeakApp до уведомления",
+        "Все перечисленные в F10 метрики экспортируются в формате Prometheus и видны на /metrics соответствующего сервиса",
+        "Trace id передаётся через заголовки сообщений RabbitMQ и присутствует в спанах консьюмеров"
+      ],
+      "test_steps": [
+        "Шаг 1: Спровоцировать один опрос, найти его trace в системе трассировки — проследить весь путь до notify",
+        "Шаг 2: Запросить /metrics каждого сервиса — сверить наличие каждой метрики из списка F10",
+        "Шаг 3: Проверить заголовки сообщения в RabbitMQ management UI — убедиться в наличии trace id"
+      ],
+      "dependencies": ["TASK-022", "TASK-029", "TASK-032"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-045",
+      "category": "infrastructure",
+      "priority": "medium",
+      "description": "Provisioned Grafana dashboard: авто-загружаемый дашборд (частота отказов WeakApp, состояние circuit-breaker и другие ключевые метрики) без ручной настройки после старта",
+      "acceptance_criteria": [
+        "После docker compose up дашборд уже присутствует в Grafana без ручных действий",
+        "Дашборд отображает частоту отказов WeakApp и состояние circuit-breaker в реальном времени",
+        "Источник данных Prometheus подключён автоматически через provisioning"
+      ],
+      "test_steps": [
+        "Шаг 1: docker compose down -v && docker compose up — открыть Grafana",
+        "Шаг 2: Убедиться, что дашборд уже существует и подключён к источнику данных",
+        "Шаг 3: Остановить WeakApp — убедиться, что дашборд отражает рост частоты отказов"
+      ],
+      "dependencies": ["TASK-044"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-046",
+      "category": "infrastructure",
+      "priority": "high",
+      "description": "Dockerfile для каждого сервиса (multi-stage сборка, non-root пользователь, read-only корневая файловая система где применимо, no-new-privileges), .dockerignore",
+      "acceptance_criteria": [
+        "Каждый образ собирается через multi-stage Dockerfile без лишних build-инструментов в финальном слое",
+        "Все контейнеры запускаются под непривилегированным пользователем, что проверяется директивой USER в Dockerfile и docker inspect",
+        "Опции безопасности read-only rootfs (где применимо) и no-new-privileges применены"
+      ],
+      "test_steps": [
+        "Шаг 1: Собрать образ каждого сервиса — сверить размер и отсутствие SDK в финальном образе",
+        "Шаг 2: docker inspect запущенный контейнер — убедиться, что процесс работает не от root",
+        "Шаг 3: Запустить контейнер с --read-only где применимо — убедиться в успешном старте"
+      ],
+      "dependencies": ["TASK-043"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-047",
+      "category": "infrastructure",
+      "priority": "critical",
+      "description": "Полная оркестрация docker-compose: все сервисы (WeakApp/RabbitMQ/PostgreSQL/Auth/Ingestor/Processor/Gateway/Notification/Frontend/Prometheus/Grafana), health-check-gated depends_on, именованные volumes, корректное распределение по сетям edge/backend/observability с фронтендом вне backend, актуализированный .env.example",
+      "acceptance_criteria": [
+        "На чистой машине с установленным Docker: git clone и docker compose up приводят к рабочему дашборду с живыми данными без дополнительных шагов",
+        "Перезапуск стека (docker compose restart) сохраняет данные благодаря именованным volumes",
+        "Контейнер frontend не имеет сетевого маршрута к RabbitMQ или PostgreSQL"
+      ],
+      "test_steps": [
+        "Шаг 1: На чистом клоне выполнить docker compose up, дождаться готовности всех сервисов, открыть дашборд",
+        "Шаг 2: docker compose restart, убедиться в сохранности данных (readings, alert rules, seed-пользователи)",
+        "Шаг 3: Попытаться выполнить сетевой запрос из контейнера frontend к PostgreSQL/RabbitMQ — убедиться в недоступности"
+      ],
+      "dependencies": ["TASK-046", "TASK-045"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-048",
+      "category": "infrastructure",
+      "priority": "medium",
+      "description": "Retention job: rollup readings старше 30 дней в readings_hourly с последующим удалением сырых строк, настраиваемое окно хранения; периодическая очистка processed_messages и ingest_batches",
+      "acceptance_criteria": [
+        "Плановая задача переносит агрегаты readings старше окна хранения в readings_hourly и удаляет исходные строки",
+        "Окно хранения конфигурируется через переменную окружения без изменения кода",
+        "processed_messages и ingest_batches не растут неограниченно — старые записи удаляются по расписанию"
+      ],
+      "test_steps": [
+        "Шаг 1: Вставить тестовые readings с датой старше окна хранения, запустить job вручную",
+        "Шаг 2: Проверить появление агрегатов в readings_hourly и удаление исходных строк",
+        "Шаг 3: Изменить переменную окружения окна хранения, повторить тест с другим порогом"
+      ],
+      "dependencies": ["TASK-047"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-049",
+      "category": "infrastructure",
+      "priority": "high",
+      "description": "CI: отдельный GitHub Actions workflow на каждый backend-сервис (path-triggered по соответствующему .slnf), включающий restore/build с warnings-as-errors/unit и integration тесты через Testcontainers/lint/статический анализ/сборку Docker-образа; отдельный frontend workflow (ESLint/TypeScript/Playwright); PR-title Conventional Commits check; защита ветки main с обязательными проверками и запретом прямых push",
+      "acceptance_criteria": [
+        "Изменение только во frontend не запускает backend-workflows и наоборот",
+        "Компиляционный warning приводит к падению соответствующего workflow",
+        "Pull request нельзя смержить, пока хотя бы один обязательный check не прошёл"
+      ],
+      "test_steps": [
+        "Шаг 1: Изменить файл только в Frontend, открыть PR — убедиться, что запустился только frontend workflow",
+        "Шаг 2: Намеренно внести warning в backend-код — убедиться в падении соответствующего workflow",
+        "Шаг 3: Попытаться смержить PR с падающим обязательным check — убедиться в блокировке"
+      ],
+      "dependencies": ["TASK-047"],
+      "status": "pending"
+    },
+    {
+      "id": "TASK-050",
+      "category": "integration",
+      "priority": "high",
+      "description": "Демонстрационные сценарии S1-S7: Playwright-спеки и вспомогательные инструменты для инъекции сбоев (остановка WeakApp/Processor, повторная публикация уже обработанного сообщения); README quickstart (git clone → docker compose up без дополнительных шагов) с описанием сценариев и seed-учётных данных",
+      "acceptance_criteria": [
+        "Каждый из сценариев S1-S7 из §11 PRD воспроизводится автоматизированным тестом или задокументированным ручным шагом",
+        "Инструмент для сценария S4 (повторная публикация обработанного сообщения) существует и подтверждает отсутствие дублей после повтора",
+        "README содержит quickstart, который приводит нового пользователя от git clone до рабочего дашборда без дополнительных шагов, включая seed-учётные данные"
+      ],
+      "test_steps": [
+        "Шаг 1: Прогнать Playwright-набор сценариев S1-S7 против поднятого через docker compose стека",
+        "Шаг 2: Выполнить сценарий S4 инструментом инъекции — убедиться в отсутствии дублей в БД",
+        "Шаг 3: Следуя README буквально на чистой машине, убедиться в достижении рабочего дашборда без импровизации"
+      ],
+      "dependencies": ["TASK-049"],
+      "status": "pending"
+    }
+  ]
+}

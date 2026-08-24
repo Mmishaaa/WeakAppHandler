@@ -1,0 +1,82 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{csproj,props,targets,sln,slnf}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_indent_labels = one_less_than_current
+
+csharp_prefer_braces = true:warning
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_require_accessibility_modifiers = always:warning
+
+dotnet_naming_rule.private_fields_underscore.severity = warning
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel_case
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# StyleCop: documentation comments are not required across the codebase.
+# Rely on descriptive naming (see project conventions); documentation rules add
+# noise without value at this project's scope. GenerateDocumentationFile is
+# also off (Directory.Build.props), which StyleCop flags via SA0001 — silence
+# that too, since it merely restates this same intentional choice.
+dotnet_diagnostic.SA0001.severity = none
+dotnet_diagnostic.SA1600.severity = none
+dotnet_diagnostic.SA1601.severity = none
+dotnet_diagnostic.SA1602.severity = none
+dotnet_diagnostic.SA1633.severity = none
+dotnet_diagnostic.SA1634.severity = none
+dotnet_diagnostic.SA1635.severity = none
+dotnet_diagnostic.SA1636.severity = none
+dotnet_diagnostic.SA1637.severity = none
+dotnet_diagnostic.SA1638.severity = none
+dotnet_diagnostic.SA1639.severity = none
+dotnet_diagnostic.SA1640.severity = none
+dotnet_diagnostic.SA1641.severity = none
+dotnet_diagnostic.SA1642.severity = none
+dotnet_diagnostic.SA1643.severity = none
+
+# StyleCop: this-qualification is a style choice this project does not enforce.
+dotnet_diagnostic.SA1101.severity = none
+
+# StyleCop: single-line accessor lists / expression bodies read fine unexpanded.
+dotnet_diagnostic.SA1502.severity = none
+
+# Underscore-prefixed private fields are the convention here (see naming rule above),
+# which conflicts with SA1309's default; re-enable it against that prefix instead.
+dotnet_diagnostic.SA1309.severity = none
+
+[Migrations/**.cs]
+generated_code = true
