@@ -1,0 +1,84 @@
+Progress Log
+============
+
+Format per entry:
+[YYYY-MM-DD HH:MM] TASK-XXX - <one-line summary of what was done>
+
+[2026-08-24 00:00] TASK-001 - Created solution-wide build conventions: Directory.Build.props
+(TreatWarningsAsErrors, Nullable=enable, LangVersion=latest, net10.0, EnforceCodeStyleInBuild,
+AnalysisLevel/Mode=latest/Recommended, StyleCop.Analyzers wired in), Directory.Packages.props
+(ManagePackageVersionsCentrally + CentralPackageTransitivePinningEnabled, StyleCop.Analyzers
+1.2.0-beta.556 pinned), stylecop.json (doc-comment rules relaxed — SA1600-family disabled by
+design; project uses descriptive naming instead of mandatory XML docs), .editorconfig
+(formatting + naming conventions, underscore-prefixed private fields, file-scoped namespaces
+required, StyleCop rule severities tuned to match), .gitattributes (LF normalization per file
+type), .gitignore (bin/obj/node_modules/.env etc.), .env.example (placeholder, will grow as
+later tasks add real services per PRD §11).
+
+STATUS: left as "pending", NOT "done" — see blocker below. The file content is believed correct
+(matches TASK-001 acceptance criteria and PRD §5/§10 M1 scope) but the task's own test_steps
+(scaffold a temp project with an intentional warning, run `dotnet build`, confirm it fails, fix
+the warning, confirm it passes) could NOT be executed and verified in this session.
+
+BLOCKER (important — needs human action before the next iteration can make real progress):
+This session's .claude/settings.json permissions allow-list only contains
+Bash(git/python/pytest/uv:*). Every `dotnet` invocation in this sandboxed PowerShell tool comes
+back immediately with "This PowerShell command contains multiple operations... requires
+approval" — i.e. it is silently denied because ralph.sh runs `claude --permission-mode
+acceptEdits -p "..."` non-interactively, so there is no user available to click "allow" for a
+first-time command pattern. (Oddly, one exact pre-cached string, `dotnet --list-sdks`, still
+works — everything else, including `dotnet --version`, `dotnet build`, `dotnet new console -o
+...`, is blocked.) I also cannot fix this myself: writing to .claude/settings.json itself
+requires the same kind of approval I don't have.
+FIX NEEDED: add "Bash(dotnet:*)" (and eventually "Bash(npm:*)", "Bash(docker:*)" for later
+milestones) to .claude/settings.json permissions.allow, so every subsequent task — which per
+ralph.sh's own prompt is REQUIRED to run `dotnet build`/`dotnet test` before completion — is
+actually able to do so. Without this, every backend task in this pipeline will hit the same
+wall. Until that's added, the next iteration should re-attempt TASK-001's verification (create
+the temp warning project under a throwaway path, confirm the build fails, remove the warning,
+confirm it passes, delete the throwaway project) and only then flip status to "done", then
+proceed to TASK-002 (solution/.slnf/project skeleton), which is what will actually exercise
+these conventions for real.
+
+ADDITIONAL BLOCKER: `git add`/`git commit` are also hard-denied by this session's tool sandbox
+("This PowerShell command contains multiple operations... requires approval"), even though
+.claude/settings.json explicitly allows "Bash(git add:*)"/"Bash(git commit:*)" and plain
+`git status`/`git log`/read-only Get-ChildItem pipelines work fine. So step 5 (commit) could not
+be performed either — these files are created on disk but NOT staged/committed. This looks like
+a sandbox-level approval gate independent of the settings.json allow-list (it blocked `git add .`
+and `git add progress.txt` identically), not something an agent can self-resolve.
+
+[2026-08-24] TASK-001 - RESOLVED and marked done. Both blockers from the previous entry were
+environment/permission issues, not fixed by me in-session — by this iteration .claude/settings.json
+already had "Bash(dotnet:*)"/"PowerShell(dotnet:*)" etc. in permissions.allow, and `git`/`dotnet`
+commands ran normally (a human must have applied the fix the prior note asked for). Ran the actual
+TASK-001 test_steps for the first time:
+  - Scaffolded a throwaway console project under _tmp_verify/WarnTest with an unused local variable.
+  - `dotnet build` failed as expected — but NOT only on the intended CS0219 warning-as-error. Found
+    and fixed two real bugs in the M1 config surfaced by this: (1) .editorconfig had a blanket
+    `[*.{cs,csx,vb,vbx}] generated_code = false`, which disabled Roslyn/StyleCop's built-in
+    auto-detection of generated files (obj/**/AssemblyInfo.cs, AssemblyAttributes.cs, etc.), so
+    StyleCop was linting build-generated code and failing every build regardless of the developer's
+    own code (SA1516/SA1512/SA1518). Removed that override; the existing `[Migrations/**.cs]
+    generated_code = true` rule is untouched and still marks EF migrations as generated. (2) SA0001
+    ("XML comment analysis is disabled due to project configuration") fires because
+    GenerateDocumentationFile=false (an intentional Directory.Build.props choice, matching the
+    already-disabled SA1600 doc-comment family) and was NOT in the suppression list, so it would
+    have failed every single project build. Added dotnet_diagnostic.SA0001.severity = none next to
+    the SA1600 suppression block with a comment explaining why.
+  - Also hit NU1507 (restore fails: multiple NuGet sources + central package management requires
+    source mapping) — this is specific to this dev machine's global NuGet.Config (3 sources:
+    nuget.org/devreon/github) and would silently NOT reproduce in CI or on a clean machine, but a
+    fresh clone here would still break. Added a repo-root nuget.config that <clear/>s inherited
+    sources and pins to nuget.org only, so `dotnet build`/`restore` is reproducible regardless of
+    the developer's machine-level NuGet config.
+  - Re-ran the build: only the intended CS0219 remained → build failed. Removed the unused
+    variable → build succeeded with 0 warnings/0 errors. Deleted the throwaway _tmp_verify project.
+  - tasks.json: TASK-001 status -> "done".
+  - Committed: Directory.Build.props, Directory.Packages.props, .editorconfig, stylecop.json,
+    .gitattributes, .gitignore, .env.example, nuget.config (new), tasks.json, progress.txt.
+
+NEXT: TASK-002 (solution/.slnf/project skeleton) is unblocked (its only dependency, TASK-001, is
+now done) and should be the next task — it's the first one that will actually exercise these
+conventions against real, non-throwaway projects.
+
