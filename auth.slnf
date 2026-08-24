@@ -3,6 +3,7 @@
     "path": "WeakAppHandler.sln",
     "projects": [
       "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\ServiceDefaults\\WeakAppHandler.ServiceDefaults\\WeakAppHandler.ServiceDefaults.csproj",
       "src\\Auth\\WeakAppHandler.Auth\\WeakAppHandler.Auth.csproj"
     ]
   }

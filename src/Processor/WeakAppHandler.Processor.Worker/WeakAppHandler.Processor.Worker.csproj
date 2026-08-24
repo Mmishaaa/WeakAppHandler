@@ -1,16 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <UserSecretsId>dotnet-WeakAppHandler.Processor.Worker-b9c29d5d-13d8-4ecd-8fa3-6ea66ed101de</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
     <ProjectReference Include="..\..\SharedKernel\WeakAppHandler.SharedKernel\WeakAppHandler.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,8 @@
+using WeakAppHandler.ServiceDefaults;
+
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddServiceDefaults();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
@@ -12,8 +15,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapServiceDefaultsEndpoints();
 
 app.Run();

@@ -179,3 +179,120 @@ already carried the "done" status change before I reverted it back to "pending" 
 `git log`/the merged PR diff for the actual file changes rather than trusting this note if time
 has passed. Do NOT re-open TASK-002's implementation work; only the PR/merge/status-flip
 mechanics remain.
+
+[2026-08-24] TASK-002 - CONFIRMED merged (retroactive note). By this session, main already had
+TASK-002 merged via PR #2 (commit 23b4e02) and a human had already added `Bash(gh:*)`/
+`PowerShell(gh:*)` to .claude/settings.json permissions.allow (commit 008177e). tasks.json on
+main already showed TASK-002 as "done", consistent with the merge. No action needed; picked a
+new task this session (see below).
+
+[2026-08-24] TASK-003 - DONE. Implemented WeakAppHandler.ServiceDefaults (new class library,
+plain `Microsoft.NET.Sdk` + `FrameworkReference Microsoft.AspNetCore.App`, added to
+WeakAppHandler.sln and to all five service .slnf files) and wired it into every existing host
+stub (Ingestor, Processor.Worker, Gateway.Api, Notification.Api, Auth):
+  - Logging: `ConfigureServiceLogging` uses Serilog.AspNetCore's `IServiceCollection.AddSerilog`
+    (works generically on any IHostApplicationBuilder, not just WebApplicationBuilder), writes
+    compact JSON to console (Serilog.Formatting.Compact), enriches with a "Service" property
+    (ApplicationName) and FromLogContext (so CorrelationIdMiddleware's pushed CorrelationId
+    property shows up on every log line for that request). Verified live: ran Gateway.Api for
+    real (`dotnet run`, background task) and confirmed structured JSON startup logs with
+    "Service":"WeakAppHandler.Gateway.Api" actually appear, not just in unit tests.
+  - Telemetry: OpenTelemetry metrics (ASP.NET Core + HttpClient + Runtime instrumentation) with
+    a Prometheus exporter mapped at `/metrics` via `MapPrometheusScrapingEndpoint`; tracing
+    (ASP.NET Core + HttpClient instrumentation) with an OTLP exporter added ONLY if
+    `OpenTelemetry:OtlpEndpoint` is configured, so a dev box with no collector running doesn't
+    get connection-refused noise by default. Full OTLP/collector wiring belongs to TASK-044.
+  - Health checks: `AddHealthChecks().AddCheck("self", ..., tags:["live"])` in ServiceDefaults
+    itself; `/health/live` and `/health/ready` map via tag-filtered `HealthCheckOptions.Predicate`
+    (live/ready respectively). Hosts add their own "ready" dependency checks later (Auth/DB in
+    TASK-008/013 etc.) by calling `AddHealthChecks()` again — ASP.NET's health check registration
+    is additive across multiple calls, verified this actually works via a test that registers a
+    toggleable fake "ready" dependency check and flips it between Healthy/Unhealthy.
+  - Correlation id: `CorrelationIdMiddleware` reads `X-Correlation-Id` if present else generates
+    a new guid, pushes it onto Serilog's LogContext for the request, and echoes it back on the
+    response header — verified both directions with tests.
+  - Auth seam: `AddServiceAuthentication` registers either a `DevBypassAuthenticationHandler`
+    (authenticates every request as a configurable dev user/role, switched on via
+    `Auth:DevBypassEnabled` config) or real JWT Bearer validation, chosen once at startup based
+    on config (this is NOT a runtime-toggleable switch — restart required to flip it, which is
+    fine for a "local dev" seam). JWKS support does NOT rely on standard OIDC discovery (Authority
+    + `/.well-known/openid-configuration`), since the Auth Service (TASK-008/009, not yet built)
+    isn't guaranteed to implement full OIDC discovery — instead there's a `JwksKeyCache` that
+    fetches+caches (15 min TTL) a bare JWKS document from a configured `Auth:JwksUri` and wires it
+    into `TokenValidationParameters.IssuerSigningKeyResolver`. `ServicePolicies.Viewer`/`.Admin`
+    role policies are registered unconditionally (RequireRole("Viewer","Admin") /
+    RequireRole("Admin")) — role claim values are expected to be PascalCase "Viewer"/"Admin";
+    TASK-008's seed users must match this casing or the policies will silently never grant access
+    (role claim comparison is case-sensitive). Real lockdown of dev-bypass outside Development is
+    TASK-042's job, not this one — ServiceDefaults just provides the switch.
+  - MassTransit: `AddServiceMassTransit` is base RabbitMQ plumbing only (host/vhost/credentials
+    from `RabbitMq:*` config, `ConfigureEndpoints(context)`) — no exchange/queue/DLQ topology yet,
+    that's TASK-012. Not yet called from any host's Program.cs (no consumers exist yet to justify
+    it) — it's available for TASK-012+ to use.
+  - Ingestor and Processor.Worker were converted from `Microsoft.NET.Sdk.Worker` to
+    `Microsoft.NET.Sdk.Web` (WebApplication.CreateBuilder + AddHostedService<Worker> +
+    MapServiceDefaultsEndpoints, instead of bare Host.CreateApplicationBuilder) — this is a
+    deliberate scope call, not scope creep: TASK-003's own acceptance criteria requires every host
+    that calls AddServiceDefaults() to actually expose working /health/live+ready+/metrics HTTP
+    endpoints, which a bare generic Host can't do without a web listener, AND TASK-017/TASK-021
+    already require these same two services to host admin REST endpoints later — so building the
+    Kestrel-hosting skeleton once now avoids re-plumbing it twice.
+  - Added 4 new PackageVersion entries' worth of packages to Directory.Packages.props (looked up
+    latest stable via `dotnet package search`, since guessing exact version numbers risks a
+    restore failure that wouldn't reproduce until CI/a clean machine): Serilog.AspNetCore 10.0.0,
+    Serilog.Formatting.Compact 3.0.0, OpenTelemetry.* 1.18.0 (Prometheus exporter is
+    1.18.0-beta.1 — stable Prometheus exporter for ASP.NET Core doesn't exist yet upstream, this
+    is expected and matches every other project using it pre-1.0), Microsoft.AspNetCore.
+    Authentication.JwtBearer 10.0.11 (matches existing OpenApi pin), MassTransit/. RabbitMQ
+    9.2.0, plus test-only Microsoft.NET.Test.Sdk/xunit/xunit.runner.visualstudio/
+    Microsoft.AspNetCore.TestHost/coverlet.collector for the new test project.
+  - New test project tests/WeakAppHandler.ServiceDefaults.Tests (xUnit + Microsoft.AspNetCore.
+    TestHost, no separate slnf — not a "service", added directly to WeakAppHandler.sln): 8 tests
+    across 3 files, all using a real ASP.NET Core pipeline via `WebApplicationBuilder` +
+    `.WebHost.UseTestServer()` + `app.GetTestClient()` (no mocking of the framework), covering
+    exactly the three acceptance criteria: /health/live 200 with no deps, /health/ready 200/503
+    depending on a toggleable fake dependency check, /metrics 200, correlation id generate+echo,
+    dev-bypass authenticates an Admin-policy endpoint with zero token, and confirms JWT-mode
+    (dev-bypass off) correctly 401s the same endpoint with zero token.
+  - Had to add one .editorconfig rule: `[tests/**.cs] dotnet_diagnostic.CA1707.severity = none`
+    — the repo's AnalysisMode=Recommended flags underscores in identifiers, but
+    Method_Scenario_ExpectedResult is the standard xUnit test-naming convention and there was no
+    existing carve-out for test projects.
+  - Also hit two StyleCop/analyzer errors while writing DevBypassAuthenticationHandler.cs that
+    aren't specific to this task but are useful to remember: SA1402/SA1649 (one type per file,
+    filename must match) forced splitting what would naturally be one small file into three
+    (DevBypassDefaults.cs / DevBypassAuthenticationOptions.cs / DevBypassAuthenticationHandler.cs)
+    — this repo's conventions want that split even for tiny tightly-coupled types.
+
+Verified: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across all 15
+projects (13 original + ServiceDefaults + the new test project). `dotnet build <service>.slnf`
+for all five .slnf files individually -> each still builds standalone and now includes
+ServiceDefaults in its project list. `dotnet test tests/WeakAppHandler.ServiceDefaults.Tests/...`
+-> 8/8 passed. Live smoke test: ran Gateway.Api for real via `dotnet run` (background task,
+stopped after capturing output) — confirmed it starts cleanly with structured JSON logs, no
+startup exceptions, listening on the configured URL. (Could not curl the running process's
+/health/live etc. from within this session — see note below; the automated TestServer-based
+integration tests already exercise the exact same code path through a real ASP.NET Core pipeline,
+which is at least as strong a verification as a manual curl would have been.)
+  - tasks.json: TASK-003 status -> "done".
+
+NOTE (not a blocker, just an observation for whoever reads this next): ad-hoc `Invoke-WebRequest`/
+`curl.exe`/`Start-Process` calls against a manually-started background process are auto-denied by
+this session's PowerShell tool sandbox the same way arbitrary never-seen-before command shapes
+always have been in this environment (see the TASK-001 entry's blocker notes) — `dotnet`, `git`,
+and now apparently `gh` are allow-listed and work fine, but one-off shell utility invocations
+still need a human in the loop. This did not block TASK-003 (the automated dotnet test suite
+covers the same ground and is the primary verification method the task's own instructions call
+for), but future tasks that specifically require manual HTTP probing of a running process (rather
+than a TestServer-based integration test) may hit this.
+
+NEXT: With TASK-003 done, three more tasks become genuinely unblocked at the top of the dependency
+tree: TASK-004 (vendor WeakApp — needs internet git clone + Docker, not yet attempted from inside
+this session, worth checking early whether that's actually reachable here), TASK-007 (architecture
+docs/ADRs, needs TASK-002+TASK-003 done — both now true), TASK-008 (Auth Service DB schema +
+seed users, needs TASK-003 done — now true, and note the PascalCase "Viewer"/"Admin" role claim
+assumption baked into ServiceDefaults' policies above), TASK-013 (Processor core DB schema, needs
+TASK-003), TASK-023 (Gateway GraphQL, needs TASK-003+TASK-020, TASK-020 still far off). Of these,
+TASK-004 is the other "critical"-priority unblocked task and has zero dependency on anything just
+built here, so it's an equally reasonable next pick if TASK-008/013 feel too small in isolation
+without real business logic yet to attach to the DB schema.

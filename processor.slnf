@@ -3,6 +3,7 @@
     "path": "WeakAppHandler.sln",
     "projects": [
       "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\ServiceDefaults\\WeakAppHandler.ServiceDefaults\\WeakAppHandler.ServiceDefaults.csproj",
       "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
       "src\\Processor\\WeakAppHandler.Processor.Domain\\WeakAppHandler.Processor.Domain.csproj",
       "src\\Processor\\WeakAppHandler.Processor.Application\\WeakAppHandler.Processor.Application.csproj",
