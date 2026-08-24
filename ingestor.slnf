@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "WeakAppHandler.sln",
+    "projects": [
+      "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
+      "src\\Ingestor\\WeakAppHandler.Ingestor\\WeakAppHandler.Ingestor.csproj"
+    ]
+  }
+}

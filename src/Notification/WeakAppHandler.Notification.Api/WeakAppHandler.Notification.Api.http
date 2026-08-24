@@ -1,0 +1,6 @@
+@WeakAppHandler.Notification.Api_HostAddress = http://localhost:5299
+
+GET {{WeakAppHandler.Notification.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

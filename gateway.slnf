@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "WeakAppHandler.sln",
+    "projects": [
+      "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\Gateway\\WeakAppHandler.Gateway.Application\\WeakAppHandler.Gateway.Application.csproj",
+      "src\\Gateway\\WeakAppHandler.Gateway.Infrastructure\\WeakAppHandler.Gateway.Infrastructure.csproj",
+      "src\\Gateway\\WeakAppHandler.Gateway.Api\\WeakAppHandler.Gateway.Api.csproj"
+    ]
+  }
+}

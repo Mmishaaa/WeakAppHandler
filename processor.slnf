@@ -1,0 +1,13 @@
+{
+  "solution": {
+    "path": "WeakAppHandler.sln",
+    "projects": [
+      "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Domain\\WeakAppHandler.Processor.Domain.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Application\\WeakAppHandler.Processor.Application.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Infrastructure\\WeakAppHandler.Processor.Infrastructure.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Worker\\WeakAppHandler.Processor.Worker.csproj"
+    ]
+  }
+}

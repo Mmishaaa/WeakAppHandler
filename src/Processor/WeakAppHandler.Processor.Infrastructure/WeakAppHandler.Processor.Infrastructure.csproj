@@ -1,0 +1,5 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\WeakAppHandler.Processor.Application\WeakAppHandler.Processor.Application.csproj" />
+  </ItemGroup>
+</Project>
