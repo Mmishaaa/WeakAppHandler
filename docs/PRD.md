@@ -51,14 +51,12 @@ The defining constraint of this product is that **the data source is hostile**. 
 
 ## 3. External Dependency: WeakApp API
 
-> **Verification status — read before implementing against this section.**
-> The upstream repository ships only a compiled `publish/` folder and a four-line README. Everything below was **derived by static inspection of `WeakAppApi.dll`** — string literals and type metadata — and has **not been confirmed against a running instance**. Each claim is tagged accordingly:
+> **Verification status — updated after live observation (see §3.5).**
+> The upstream repository ships only a compiled `publish/` folder and a four-line README. The section below was originally **derived by static inspection of `WeakAppApi.dll`** — string literals and type metadata — and tagged `[confirmed]`/`[inferred]`/`[assumed]`. The verification step in §3.5 has since been run against a live container (45 real `GET /meters` requests across two runs); the full capture and analysis live in `docs/weakapp-observed-response.json`. Remaining tags now mean:
 >
-> - **[confirmed]** — read directly from the assembly; cannot reasonably mean anything else.
-> - **[inferred]** — follows from framework defaults or naming conventions, but not directly observed.
-> - **[assumed]** — not present in the assembly at all; supplied by this document as a reasonable default.
->
-> Before `F1` is implemented, the upstream service must be run once and a real response captured (see §3.5). Any discrepancy invalidates this section, not the implementation built from it.
+> - **[confirmed]** — read directly from the assembly, or since confirmed on the wire.
+> - **[observed]** — directly captured from a live response; replaces the old `[inferred]`/`[assumed]` tags where a real sample settled the question.
+> - **[assumed]** — still not observed even after live verification (e.g. exact value bounds, since server-side caching limited the sample's diversity); kept as a documented placeholder.
 
 ### 3.1 Interface
 
@@ -75,15 +73,15 @@ An unused `GET /weatherforecast` endpoint remains from the project template and 
 
 ### 3.2 Response shape
 
-`GET /meters` returns a JSON array **[inferred]** — the assembly exposes a `MeterData` type with `Name`, `Type` and `Payload` properties, but whether the array is returned bare or inside an envelope was not observed.
+`GET /meters` returns a bare JSON array **[observed]** — confirmed directly against a live container; there is no wrapping envelope object.
 
 | Field | Type | Domain | Status |
 |-------|------|--------|--------|
-| `name` | string | `Kitchen`, `Living Room`, `Bedroom`, `Garage`, `Office`, `Corridor` | Domain **[confirmed]**; JSON casing **[inferred]** |
-| `type` | string | `energy`, `air_quality`, `motion` | Domain **[confirmed]**; JSON casing **[inferred]** |
+| `name` | string | `Kitchen`, `Living Room`, `Bedroom`, `Garage`, `Office`, `Corridor` | Domain **[confirmed]**; JSON casing `name` **[observed]** |
+| `type` | string | `energy`, `air_quality`, `motion` | Domain **[confirmed]**; JSON casing `type` **[observed]** |
 | `payload` | object | Variant determined by `type` | **[confirmed]** |
 
-The CLR properties are declared `Name`, `Type` and `Payload`, but ASP.NET Core serialises with a camelCase naming policy by default, so the wire format is expected to be lower-cased. **Client models must not be written against the PascalCase form until a real response confirms which is correct.**
+The CLR properties are declared `Name`, `Type` and `Payload`; the wire format is camelCase (`name`, `type`, `payload`) as expected from ASP.NET Core's default naming policy — **[observed]**, confirmed against a live response captured in `docs/weakapp-observed-response.json`. Client models should use the camelCase form.
 
 Payload variants **[confirmed]** — these are the literal `ToString()` format templates of the anonymous payload types found in the assembly (`{{ energy = {0} }}`, `{{ co2 = {0}, pm25 = {1}, humidity = {2} }}`, `{{ motionDetected = {0} }}`):
 
@@ -95,10 +93,12 @@ Payload variants **[confirmed]** — these are the literal `ToString()` format t
 
 **Unknowns that affect design decisions:**
 
-- **Units and value ranges [assumed].** The assembly contains no unit information. §7.1 assigns conventional units, which are placeholders until verified.
-- **Semantics of `energy` [assumed].** Whether it reports instantaneous power or cumulative consumption is unknown, and the two demand different aggregation — average versus difference-over-window. §7 currently assumes an instantaneous reading aggregated by average and sum.
-- **Meter cardinality [assumed].** This document assumes six locations × three types = eighteen meters. The assembly generates data randomly and may not emit every combination in every response.
-- **Instability parameters [not extracted].** Error probability, cache duration, rate-limit threshold and delay range are IL constants that were not decompiled. Ingestor configuration defaults must therefore be derived empirically.
+- **Units [assumed], value ranges [observed but narrow].** The assembly contains no unit information; §7.1 still assigns conventional units as placeholders. Value ranges were directly observed (`docs/weakapp-observed-response.json`): `energy` 25.83–999.45, `co2` 318–989, `pm25` 5–42, `humidity` 20–74. These bounds are narrower than the true range almost certainly is, because server-side response caching (confirmed — see below) meant the ~40 successful polls captured only 2–3 independently-random draws, not 40 independent samples.
+- **Semantics of `energy` [still assumed].** Live observation cannot distinguish instantaneous power from cumulative consumption from a single snapshot; this remains unresolved and §7 still assumes an instantaneous reading aggregated by average and sum.
+- **Meter cardinality [observed].** Confirmed: every successful response but one returned exactly eighteen meters (six locations × three types). One anomalous 200 response returned an empty array `[]` instead — see the corrupted/empty-response note below.
+- **Server-side caching [observed].** Confirmed directly: within a single container run, consecutive successful polls repeatedly returned byte-identical bodies before the cached value changed. This is the reason the value-range sample above is narrower than 40 independent draws.
+- **Instability parameters [still not extracted].** Exact error probability, cache duration and delay range remain IL constants that were not decompiled. What was determined empirically: the rate limiter trips after roughly 8–12 requests within a 10–20 second window and returns `Retry-After` in whole seconds (21–23 observed); an undocumented HTTP 500 "Unknown error" (plain text) occurred in ~9% of the 45 requests made during verification, in addition to the previously-known 502/504. See `docs/weakapp-observed-response.json` for the full breakdown.
+- **Corrupted-payload shape [not observed].** The specific `{"error": "data corrupted"}` HTTP 200 body implied by the decompiled string literal was never observed across 45 real requests. What *was* observed instead: an HTTP 500 "Unknown error", and once a client-side stream-truncation exception (`HttpClient` failed mid-read of the response body) — both are plausible real-world manifestations of "corrupted" data and must be handled by the Ingestor's failure-mode logic (§3.3) even though the exact documented JSON shape has not been confirmed reachable in practice.
 
 **Critical gap [confirmed]:** responses contain **no timestamp and no identifier**. Observation time must be assigned by our system at fetch time, and message identity must be synthesised. F1 and F3 address the consequences.
 
@@ -116,18 +116,18 @@ curl -H "X-Api-Key: supersecret" http://localhost:8080/meters
 
 Repeat the request roughly ten times in succession and record: the exact JSON casing and envelope shape, the number of meters returned, observed value ranges per metric, how frequently 502/504/corrupted responses occur, and after how many rapid requests HTTP 429 appears together with its `Retry-After` value.
 
-The captured output should be committed to `docs/weakapp-observed-response.json` so that contract tests can assert against a real sample rather than an assumed one, and this section updated to replace **[inferred]** and **[assumed]** tags with observed facts.
+**Done.** The captured output is committed to `docs/weakapp-observed-response.json` (45 real requests across two container runs), and §3.2 above has been updated to replace the `[inferred]`/`[assumed]` tags with observed facts where a live sample settled the question. Headline results: bare JSON array, camelCase wire format, exactly 18 meters per successful response (with server-side caching confirmed), rate limiting after roughly 8–12 requests with a `Retry-After` of 21–23 seconds, and an undocumented HTTP 500 "Unknown error" failure mode not previously listed in §3.3. The exact `{"error": "data corrupted"}` shape was not reproduced live; §3.3 has been updated accordingly.
 
 ### 3.3 Failure modes
 
 | Mode | Manifestation | Required handling |
 |------|---------------|-------------------|
-| Upstream error | HTTP 502 / 504 with a JSON error body | Retry with exponential backoff and jitter; open circuit breaker after repeated failures |
-| Corrupted payload | HTTP 200 with body `{"error": "data corrupted"}` under `Content-Type: application/json` | Detect during deserialisation; discard the batch, record outcome `corrupted`, do not retry immediately |
-| Rate limiting | HTTP 429 with a `Retry-After` header, applied per client IP | Honour `Retry-After` exactly; never retry sooner |
+| Upstream error | HTTP 502 / 504 / **500** with a plain-text body (`Bad Gateway` / `Gateway Timeout` / `Unknown error`) — **[observed]**: body is `text/plain`, not JSON as originally assumed; HTTP 500 is an additional mode not present in the original assembly-derived table, observed in ~9% of verification requests | Retry with exponential backoff and jitter; open circuit breaker after repeated failures; treat 500 the same as 502/504 |
+| Corrupted / truncated payload | The specific `{"error": "data corrupted"}` HTTP 200 body was **not observed** in 45 live requests (`docs/weakapp-observed-response.json`). What was observed instead: a client-side stream-truncation exception while reading the response body, and a single HTTP 200 with a well-formed but empty array `[]` | Detect during deserialisation *or* mid-read I/O failure; discard the batch, record outcome `corrupted`, do not retry immediately. Treat an empty-but-valid array as a successful poll with zero readings, not as `corrupted` |
+| Rate limiting | HTTP 429 with a `Retry-After` header, applied per client IP — **[observed]**: plain-text body `Too Many Requests: rate limit exceeded`; header value observed as 21–23 seconds; trips after roughly 8–12 requests within a 10–20 second window | Honour `Retry-After` exactly; never retry sooner |
 | Random latency | Arbitrary delay before responding | Per-request timeout shorter than the polling interval; a timed-out poll is recorded and skipped, never queued |
-| Server-side caching | Consecutive polls return identical data | Do not treat repetition as new information; see the change-detection rule in §6.3 |
-| Missing API key | HTTP 401 with `Invalid or missing API key` | Treat as fatal configuration error: log at error level, surface in ingestion status, do not retry in a tight loop |
+| Server-side caching | Consecutive polls return identical data — **[observed]**: confirmed directly, several consecutive successful polls within one container run returned byte-identical bodies | Do not treat repetition as new information; see the change-detection rule in §6.3 |
+| Missing API key | HTTP 401 with `Invalid or missing API key` — **[observed]**, exact text match | Treat as fatal configuration error: log at error level, surface in ingestion status, do not retry in a tight loop |
 
 ### 3.4 Packaging
 
@@ -578,7 +578,7 @@ Unique constraint on `(location, meter_type)`.
 |-------|------|-------|
 | `code` | varchar(32) | Primary key: `energy`, `co2`, `pm25`, `humidity`, `motion_detected` |
 | `meter_type` | varchar(32) | Owning meter type |
-| `unit` | varchar(16) | `kWh`, `ppm`, `µg/m³`, `%`, `—` — **assumed**, not supplied by the source API; see §3.2 |
+| `unit` | varchar(16) | `kWh`, `ppm`, `µg/m³`, `%`, `—` — **assumed**, not supplied by the source API; see §3.2. Observed numeric *ranges* (not units) are now known: `energy` 25.83–999.45, `co2` 318–989, `pm25` 5–42, `humidity` 20–74 — see `docs/weakapp-observed-response.json` |
 | `value_kind` | varchar(16) | `numeric` \| `boolean` |
 | `display_name` | varchar(64) | UI label |
 

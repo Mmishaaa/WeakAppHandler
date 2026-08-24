@@ -512,3 +512,68 @@ RabbitMQ + PostgreSQL) is also now unblocked and is the other critical-priority 
 this one. Docker daemon connectivity is confirmed working in this environment as of this session
 — future sessions should not assume it's blocked without testing `docker info` (not just
 `docker --version`, which is client-only and does not prove daemon reachability) themselves first.
+
+[2026-08-24] TASK-005 - DONE. Picked this over the other newly-unblocked critical tasks (TASK-008
+Auth DB schema, TASK-013 Processor core DB schema) because it's explicitly flagged in the previous
+entry as the natural next step, is fast, and — more importantly — several already-completed and
+several still-pending tasks (TASK-015/016 Ingestor resilience+polling, TASK-018 Processor consumer,
+§7.1 schema) depend on the *shape* of WeakApp's real responses being nailed down before more code
+gets built against assumptions that could turn out wrong.
+
+`docker info` confirmed the daemon is still reachable this session; `docker images weakapp` showed
+the image from TASK-004 already existed, so no rebuild was needed. Ran the WeakApp container
+(`docker run -d -p 18080:8080 weakapp:latest`) and reused the TASK-004 pattern of a throwaway
+HttpClient-based `dotnet new console` probe under `_tmp_verify/ContractProbe` (PowerShell's
+ConstrainedLanguage mode in this session still rejects `Invoke-WebRequest`/raw `HttpClient`
+instantiation from script, exactly as TASK-004 documented) to make 45 real `GET /meters` requests
+across two container runs: 10 sequential (1s apart), a rapid-fire burst to find the 429 threshold,
+25 more (1.5s apart) after waiting out the resulting Retry-After, plus one request with no
+X-Api-Key header. Deleted the throwaway probe project and container afterward.
+
+Findings committed to `docs/weakapp-observed-response.json` and folded into `docs/PRD.md` §3.2/§3.3
+(the verification-status blockquote, response-shape table, and failure-mode table), replacing the
+`[inferred]`/`[assumed]` tags with `[observed]` facts or, where still genuinely unresolved, leaving
+`[assumed]` with an explicit note of why:
+  - Envelope: bare JSON array, NOT wrapped — confirms the PRD's own inferred guess.
+  - Casing: camelCase confirmed on the wire (`name`, `type`, `payload`, `motionDetected`, `co2`,
+    `pm25`, `humidity`, `energy`) — the PascalCase CLR properties are not what's serialized.
+  - Cardinality: every successful response but one returned exactly 18 meters (6 locations x 3
+    types) — confirms the PRD's assumed cardinality as observed fact.
+  - Server-side caching: confirmed directly — several consecutive polls within one container run
+    returned byte-identical bodies before the cached value changed once.
+  - Value ranges observed (narrower than true bounds almost certainly, due to caching limiting
+    independent samples to ~2-3 per run): energy 25.83-999.45, co2 318-989, pm25 5-42,
+    humidity 20-74. Units themselves remain [assumed] — the API still supplies no unit info.
+  - Rate limiting: trips after roughly 8-12 requests within a 10-20 second window; Retry-After
+    observed as 21 and 23 seconds (whole-second values); 429 body is plain text
+    "Too Many Requests: rate limit exceeded", not JSON.
+  - 401 body exact match to PRD's documented text, confirmed by omitting X-Api-Key entirely.
+  - TWO GENUINE PRD CORRECTIONS (not just tag updates) surfaced by live observation, both folded
+    into §3.3's failure-mode table:
+    1. An undocumented HTTP 500 "Unknown error" (plain text) occurred in ~9% of the 45 requests —
+       this failure mode did not exist anywhere in the original assembly-derived PRD and must be
+       handled by the Ingestor's resilience policy (TASK-015) the same way as 502/504, or a real
+       fraction of upstream failures will fall through unhandled.
+    2. The PRD's specific decompiled `{"error": "data corrupted"}` HTTP-200-with-JSON-body shape
+       was NEVER observed across all 45 requests. What was observed instead: a client-side
+       HttpClient stream-truncation exception mid-read (twice), and once a well-formed but empty
+       JSON array `[]` under a normal 200. Recommended handling folded into the PRD: treat a
+       mid-read I/O failure as the real-world "corrupted" case (TASK-015's resilience pipeline must
+       catch this, not just JSON deserialization exceptions on a fully-buffered body), and treat an
+       empty-but-valid array as a legitimate zero-reading success, NOT as `corrupted` — this matters
+       for TASK-016's outcome classification and TASK-018's `ingest_batches.reading_count` semantics.
+  - 502/504 bodies confirmed `text/plain` (`Bad Gateway`/`Gateway Timeout`), not JSON as the
+    original PRD phrasing implied.
+
+Not a .NET or frontend change (docs/JSON capture only, nothing under src/ or tests/ touched), so
+per the workflow's own "skip inapplicable checks" instruction, `dotnet build`/`dotnet test`/`npm`
+checks do not apply here.
+  - tasks.json: TASK-005 status -> "done".
+
+NEXT: TASK-006 (base docker-compose: WeakApp + RabbitMQ + PostgreSQL, three networks, health-check
+gating) and TASK-008 (Auth Service DB schema + seed users) and TASK-013 (Processor core DB schema)
+are all now the remaining unblocked "critical"/"high" tasks with no further prerequisites. The two
+PRD corrections above (HTTP 500 as a retryable upstream error; empty-array success vs. corrupted;
+mid-read stream truncation as the real corrupted-payload trigger) are load-bearing for whoever
+picks up TASK-015 (Ingestor resilience pipeline) next — read `docs/weakapp-observed-response.json`
+directly rather than relying on this summary before implementing that task's Polly policies.
