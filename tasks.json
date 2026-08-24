@@ -97,7 +97,7 @@
         "Шаг 3: docker run -p 8080:8080 образ и curl http://localhost:8080/health — получить успешный ответ"
       ],
       "dependencies": ["TASK-001"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-005",
