@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "capturedAt": "2026-08-24",
+    "method": "docker run -d -p 18080:8080 weakapp:latest (image built from third_party/weak-app in TASK-004); GET http://localhost:18080/meters with header X-Api-Key: supersecret, issued from a throwaway HttpClient-based .NET console probe (PowerShell in this environment runs in ConstrainedLanguage mode and cannot make raw HTTP calls)",
+    "requestCount": "45 GET /meters requests across two container runs (10 sequential @ 1s apart, a rapid-fire burst, and 25 more @ 1.5s apart after waiting out a 429), plus 1 request with no X-Api-Key header",
+    "note": "This file replaces the PRD's assembly-derived [inferred]/[assumed] tags for §3.2 with directly observed facts. See docs/Prd.md §3.2 for the updated narrative."
+  },
+  "successResponse": {
+    "httpStatus": 200,
+    "contentType": "application/json; charset=utf-8",
+    "envelope": "bare JSON array, NOT wrapped in an object - confirms the [inferred] guess in the original PRD §3.2",
+    "casing": "camelCase on the wire (name, type, payload, and payload fields motionDetected/co2/pm25/humidity/energy) - confirms the PascalCase CLR property names are NOT what appears on the wire",
+    "meterCount": 18,
+    "meterCountNote": "Every single one of the ~40 successful/observed array responses across both runs returned exactly 18 elements (6 locations x 3 types), confirming the PRD's 'assumed' cardinality as an observed fact - EXCEPT one anomalous 200 response that returned an empty array [] (see knownAnomalies below)",
+    "sampleBody": [
+      { "type": "motion", "name": "Office", "payload": { "motionDetected": true } },
+      { "type": "energy", "name": "Kitchen", "payload": { "energy": 220.72 } },
+      { "type": "air_quality", "name": "Corridor", "payload": { "co2": 727, "pm25": 42, "humidity": 47 } },
+      { "type": "motion", "name": "Corridor", "payload": { "motionDetected": false } },
+      { "type": "air_quality", "name": "Bedroom", "payload": { "co2": 357, "pm25": 7, "humidity": 51 } },
+      { "type": "energy", "name": "Bedroom", "payload": { "energy": 139.89 } },
+      { "type": "energy", "name": "Office", "payload": { "energy": 405 } },
+      { "type": "motion", "name": "Garage", "payload": { "motionDetected": false } },
+      { "type": "energy", "name": "Living Room", "payload": { "energy": 760.36 } },
+      { "type": "air_quality", "name": "Garage", "payload": { "co2": 682, "pm25": 5, "humidity": 74 } },
+      { "type": "motion", "name": "Kitchen", "payload": { "motionDetected": true } },
+      { "type": "energy", "name": "Corridor", "payload": { "energy": 616.62 } },
+      { "type": "energy", "name": "Garage", "payload": { "energy": 392.65 } },
+      { "type": "motion", "name": "Bedroom", "payload": { "motionDetected": true } },
+      { "type": "air_quality", "name": "Office", "payload": { "co2": 712, "pm25": 34, "humidity": 20 } },
+      { "type": "air_quality", "name": "Kitchen", "payload": { "co2": 938, "pm25": 39, "humidity": 70 } },
+      { "type": "air_quality", "name": "Living Room", "payload": { "co2": 662, "pm25": 36, "humidity": 21 } },
+      { "type": "motion", "name": "Living Room", "payload": { "motionDetected": false } }
+    ],
+    "cachingBehaviorObserved": "Confirmed: within a run, most consecutive 200 responses returned byte-identical bodies (same values for every meter), matching PRD §3.3's documented caching behavior. Across the two separate container runs in this session, the cached payload differed (different random seed per container start), but ~6-8 consecutive polls within one run kept returning the exact same body before it changed once."
+  },
+  "observedValueRanges": {
+    "note": "Sampled from ~40 successful responses across both runs; because of server-side caching (see above), these ranges reflect only 2-3 distinct random draws per run, not a large independent sample - true bounds may be wider. Still directly observed, not assumed.",
+    "energy": { "min": 25.83, "max": 999.45, "kind": "numeric (JSON number, decimal precision observed)" },
+    "co2": { "min": 318, "max": 989, "kind": "numeric (integer values observed)" },
+    "pm25": { "min": 5, "max": 42, "kind": "numeric (integer values observed)" },
+    "humidity": { "min": 20, "max": 74, "kind": "numeric (integer values observed)" },
+    "motionDetected": { "kind": "boolean", "valuesObserved": [true, false] }
+  },
+  "failureModesObserved": {
+    "http502": {
+      "occurred": true,
+      "contentType": "text/plain; charset=utf-8",
+      "body": "Bad Gateway",
+      "note": "Matches PRD §3.3, but body is plain text, not a JSON error body as the PRD's 'JSON error body' phrasing implied - PRD text updated."
+    },
+    "http504": {
+      "occurred": true,
+      "contentType": "text/plain; charset=utf-8",
+      "body": "Gateway Timeout",
+      "note": "Matches PRD §3.3, plain text body."
+    },
+    "http500": {
+      "occurred": true,
+      "contentType": "text/plain; charset=utf-8",
+      "body": "Unknown error",
+      "note": "NOT documented anywhere in PRD §3.3's failure-mode table. Observed 4 times across 45 requests (~9% of requests). Must be treated by the Ingestor as another retryable upstream error alongside 502/504, not as an unhandled case."
+    },
+    "clientSideStreamTruncation": {
+      "occurred": true,
+      "observedAs": ".NET HttpClient threw 'Error while copying content to a stream.' while reading the response body",
+      "occurrences": 2,
+      "note": "The server appears to close/reset the connection mid-response for some fraction of requests. This is a plausible real-world manifestation of what the PRD called 'corrupted payload', though the PRD's specific documented shape ({\"error\": \"data corrupted\"} with HTTP 200) was NOT observed in 45 real requests across two runs. The Ingestor's HTTP client must treat a mid-read exception as a failed/corrupted attempt (outcome=corrupted or a dedicated network-error outcome), not just deserialization failures on a fully-received body."
+    },
+    "emptyArrayOn200": {
+      "occurred": true,
+      "occurrences": 1,
+      "body": "[]",
+      "contentType": "application/json; charset=utf-8",
+      "note": "One 200 response returned a valid, well-formed, but empty JSON array instead of 18 meters. Could not be distinguished with certainty from the documented 'corrupted' payload concept (both represent 'no usable readings this poll') - since it is valid JSON with HTTP 200 and NOT the {\"error\":\"data corrupted\"} shape, the Ingestor should treat a successful-but-empty array as a valid response with readingCount=0, not as an error outcome."
+    },
+    "http429": {
+      "occurred": true,
+      "contentType": "text/plain; charset=utf-8",
+      "body": "Too Many Requests: rate limit exceeded",
+      "retryAfterHeader": "observed values: 21, 23 (seconds) across two runs",
+      "thresholdObserved": "Roughly 8-12 successful/attempted requests within about a 10-20 second window trips the limiter; the exact count varies slightly between runs (per-IP, undocumented exact threshold per PRD §3.2's 'not extracted' note - this remains an empirical approximation, not an exact constant, since the source is closed and IL constants were not decompiled).",
+      "note": "PRD §3.3 said 'Honour Retry-After exactly; never retry sooner' - confirmed the header is present and numeric (whole seconds) on every 429 observed."
+    },
+    "http401": {
+      "occurred": true,
+      "body": "Invalid or missing API key",
+      "note": "Exact match to PRD §3.3's documented text, confirmed by omitting the X-Api-Key header entirely."
+    },
+    "corruptedJsonErrorBody": {
+      "occurred": false,
+      "note": "The PRD's specifically-decompiled {\"error\": \"data corrupted\"} HTTP 200 body was never observed in 45 real requests. It may require a longer observation window, a different trigger condition, or may in practice manifest as the clientSideStreamTruncation or emptyArrayOn200 cases documented above. Contract tests should NOT assume this exact shape is reachable in practice; they should instead cover the failure shapes actually observed here."
+    }
+  }
+}

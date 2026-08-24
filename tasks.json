@@ -115,7 +115,7 @@
         "Шаг 3: Сверить casing и структуру с PRD §3.2, обновить документ при расхождении"
       ],
       "dependencies": ["TASK-004"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-006",
