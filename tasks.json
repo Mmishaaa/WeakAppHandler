@@ -61,7 +61,7 @@
         "Шаг 3: Проверить .csproj Contracts — отсутствие PackageReference кроме системных"
       ],
       "dependencies": ["TASK-001"],
-      "status": "done"
+      "status": "pending"
     },
     {
       "id": "TASK-003",
