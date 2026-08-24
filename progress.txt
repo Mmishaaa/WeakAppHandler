@@ -82,3 +82,68 @@ NEXT: TASK-002 (solution/.slnf/project skeleton) is unblocked (its only dependen
 now done) and should be the next task — it's the first one that will actually exercise these
 conventions against real, non-throwaway projects.
 
+[2026-08-24] TASK-002 - DONE. Created WeakAppHandler.sln (classic .sln format — note: on the
+.NET 10 SDK, `dotnet new sln` now defaults to the new XML `.slnx` format; had to pass `-f sln`
+explicitly to get the classic format the task and its .slnf tooling expect) plus 13 stub
+projects under src/, wired with project references matching PRD §4.2's service responsibilities:
+  - src/SharedKernel/WeakAppHandler.SharedKernel — no references (common base, currently empty).
+  - src/Contracts/WeakAppHandler.Contracts — zero references of any kind (not just zero package
+    refs) so future message-contract types stay usable from every service without pulling in
+    SharedKernel too.
+  - src/Ingestor/WeakAppHandler.Ingestor (Worker Service) — references Contracts + SharedKernel
+    only, no Domain layer, matching "Thin worker; no domain layer" (§4.2).
+  - src/Processor/{Domain,Application,Infrastructure,Worker} — Clean Architecture chain
+    (Domain <- Application <- Infrastructure <- Worker); Worker also references Contracts +
+    SharedKernel.
+  - src/Gateway/{Application,Infrastructure,Api} — same chain, deliberately no Gateway.Domain
+    project (Gateway is read-only over the core schema per the ADR called out in TASK-007's
+    description).
+  - src/Notification/{RuleEngine,Api} — RuleEngine has zero project/package references by
+    design (TASK-028 later requires this to stay a pure, infra-free component); Api references
+    RuleEngine + Contracts + SharedKernel.
+  - src/Auth/WeakAppHandler.Auth — single project per §4.2 ("Minimal; single bounded
+    responsibility"), references SharedKernel only.
+Created five .slnf files (ingestor/processor/gateway/notification/auth.slnf), each verified by
+building it standalone and confirming the project list in the build output matches exactly what
+that service needs (nothing extra pulled in).
+
+Two real (non-environmental) issues surfaced and fixed along the way, not just template
+boilerplate:
+  1. `Microsoft.AspNetCore.OpenApi` 10.0.8 (the version `dotnet new webapi` picked from whatever
+     was locally cached) pulls in `Microsoft.OpenApi` 2.0.0, which has a known high-severity
+     advisory (GHSA-v5pm-xwqc-g5wc). Because Directory.Build.props sets
+     TreatWarningsAsErrors=true, NuGet's NU1903 audit warning turned into a hard restore error
+     for Gateway.Api/Notification.Api/Auth — this is exactly the kind of problem the strict
+     build is supposed to catch, so it should NOT be suppressed. Fixed by bumping
+     Microsoft.AspNetCore.OpenApi to 10.0.11 in Directory.Packages.props, which resolves to a
+     patched Microsoft.OpenApi transitively; restore is clean again with no vulnerability
+     warnings.
+  2. `dotnet new worker`/`webapi` templates' generated boilerplate (Worker.cs, Program.cs) fails
+     under this repo's AnalysisMode=Recommended + StyleCop: CA1848 (use LoggerMessage delegates
+     instead of ILogger extension calls), CA1727 (log placeholder must be PascalCase — the
+     template's own `{time}` placeholder violates its own convention), and SA1512/SA1515
+     (blank-line rules around the template's inline comments). Since these are throwaway stub
+     files that later tasks (TASK-016 Ingestor polling loop, TASK-018 Processor consumer) will
+     replace entirely with real logic anyway, resolved by simplifying Worker.cs to a bare
+     Task.Delay loop with no logging call, and stripping the two boilerplate comments from each
+     Program.cs, rather than trying to make the template's demo logging call analyzer-compliant.
+Also removed the WeatherForecast demo model/controller from Gateway.Api/Notification.Api/Auth,
+and deleted the empty Class1.cs from every class-library stub (an SDK-style class library builds
+fine with zero .cs files, which is a truer "stub" than a placeholder class no one will use).
+All PackageReference versions were centralized into Directory.Packages.props (Microsoft.
+AspNetCore.OpenApi, Microsoft.Extensions.Hosting) per TASK-001's Central Package Management
+setup — none of the generated .csproj files carry inline Version attributes.
+
+Verified: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings, 0 errors, all 13
+projects. `dotnet build <service>.slnf` for all five .slnf files individually -> each builds
+successfully and its output lists exactly the projects that service should have (SharedKernel/
+Contracts pulled in as needed, nothing from sibling services). Contracts.csproj confirmed to
+have zero PackageReference/ProjectReference entries at all.
+  - tasks.json: TASK-002 status -> "done".
+
+NEXT: TASK-003 (ServiceDefaults: Serilog, OpenTelemetry, /health/live+ready, JWT/JWKS auth seam
+with dev-bypass, MassTransit base config) is unblocked — its only dependency, TASK-002, is now
+done — and is the natural next step since every host project just scaffolded (Ingestor,
+Processor.Worker, Gateway.Api, Notification.Api, Auth) needs to call AddServiceDefaults() before
+any of them can do real work. TASK-004 (vendor WeakApp) has no dependency on TASK-002/003 and
+could also be picked up independently/in parallel by a future session if useful.

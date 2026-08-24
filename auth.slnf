@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "WeakAppHandler.sln",
+    "projects": [
+      "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\Auth\\WeakAppHandler.Auth\\WeakAppHandler.Auth.csproj"
+    ]
+  }
+}
