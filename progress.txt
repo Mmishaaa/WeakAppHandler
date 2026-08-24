@@ -296,3 +296,93 @@ TASK-003), TASK-023 (Gateway GraphQL, needs TASK-003+TASK-020, TASK-020 still fa
 TASK-004 is the other "critical"-priority unblocked task and has zero dependency on anything just
 built here, so it's an equally reasonable next pick if TASK-008/013 feel too small in isolation
 without real business logic yet to attach to the DB schema.
+
+[2026-08-24] TASK-011 - DONE. Implemented the shared message contracts in
+WeakAppHandler.Contracts (still zero PackageReference/ProjectReference entries of any kind —
+verified after adding these files). Picked this over the other unblocked critical task (TASK-004,
+vendor WeakApp) because it's self-contained (no Docker/internet dependency), fast to verify with
+plain dotnet build/test, and sits on the critical path for the core data pipeline (TASK-012
+RabbitMQ topology, TASK-018/019/020 Processor consumer chain, TASK-029 Notification rule
+evaluation all depend on these types existing first).
+
+Types added (one per file, matching this repo's SA1402/SA1649 one-type-per-file convention):
+  - IngestOutcome (enum: Success/HttpError/Timeout/Corrupted/RateLimited/Unauthorized, mirrors
+    ingest_batches.outcome from PRD §7.1).
+  - MetricValue(double? Numeric, bool? Boolean) — small helper record used for every metric
+    observation, since metrics are either numeric or boolean (metrics.value_kind) and readings/
+    meter_current_state store them as a value_numeric/value_bool column pair. Reused across
+    ReadingStored, AlertRaised and AlertResolved instead of duplicating two nullable fields
+    everywhere a "value" needs to be represented.
+  - IngestAttemptRecorded(MessageId, BatchId, FetchedAt, Outcome, HttpStatus, DurationMs,
+    ReadingCount, ErrorMessage) — published by the Ingestor for every poll attempt, success or
+    failure. This is the architecture-review decision recorded in tasks.json's notes.
+    architecture_review (point 1): the Ingestor has no DB access, so this message is how the
+    Processor learns an attempt's outcome and writes it into ingest_batches, rather than the
+    Ingestor writing to the DB directly.
+  - MeterReadingEnvelope(Location, MeterType, Payload, PayloadHash) and
+    ReadingsIngested(MessageId, BatchId, FetchedAt, SourceLatencyMs, Readings) — published only
+    for a successful, well-formed WeakApp response. Payload is kept as opaque raw JSON text (not
+    a typed shape) rather than guessing WeakApp's exact field names now — TASK-005 (contract
+    verification against the real WeakApp API, still pending) may reveal payload shapes that
+    don't match a hand-written DTO, and normalising the payload into flat metric rows is
+    explicitly the Processor's job (F3), not something Contracts should pre-judge. Deliberately
+    used `Guid MessageId` distinct from `Guid BatchId` on both IngestAttemptRecorded and
+    ReadingsIngested: BatchId is the shared identifier that ties one poll attempt's two messages
+    together (becomes ingest_batches.id) and is what TASK-011's own acceptance criterion checks;
+    MessageId is each message's own idempotency key for the processed_messages ledger (TASK-018).
+    They must NOT be the same value, or a duplicate-delivery retry of one message type would look
+    like a legitimate second attempt sharing the same batch.
+  - ReadingStored(MeterId, Location, MeterType, MetricCode, Value, PreviousValue, IsChanged,
+    ObservedAt) — Location/MeterType are denormalised onto the message (not just MeterId) so the
+    Notification service's rule engine (TASK-028/029) can match rules by location/meterType/
+    metric without ever querying the Processor's database, matching F6's evaluation pseudocode
+    which only reads from the ReadingStored event. PreviousValue is nullable (a meter's first-
+    ever reading of a metric has none), Value is not.
+  - AlertRaised(AlertId, RuleId, MeterId, Location, MeterType, MetricCode, Severity,
+    TriggeredValue, TriggeredAt) and AlertResolved(... ResolvedValue, ResolvedAt) — carry the same
+    denormalised location/meterType/metricCode as the `alerts` table itself will (TASK-027's
+    design note: alerts has no FK into meters/metrics owned by Processor), so subscribers (Gateway
+    GraphQL subscriptions, SignalR AlertsHub) never need a cross-service join.
+
+Testing: new tests/WeakAppHandler.Contracts.Tests project (xUnit only, ProjectReference to
+Contracts, no other dependencies), added to WeakAppHandler.sln under the tests/ solution folder
+via `dotnet sln add` (not added to any service .slnf — same precedent as
+WeakAppHandler.ServiceDefaults.Tests, it's cross-cutting rather than owned by one service). Wrote
+a JSON round-trip test (System.Text.Json — ships in the shared framework, no PackageReference
+needed) for every one of the six message types, plus a test asserting an IngestAttemptRecorded/
+ReadingsIngested pair from the same conceptual attempt share BatchId but not MessageId.
+
+One real correctness gotcha surfaced and fixed here, worth remembering for future contract types:
+C#'s compiler-synthesized record equality does NOT do deep/structural equality for collection-
+typed members — `ReadingsIngested.Readings` is `IReadOnlyList<MeterReadingEnvelope>`, and the
+default `EqualityComparer<IReadOnlyList<T>>` falls back to reference equality, so
+`Assert.Equal(original, roundTripped)` on the whole record failed even though every element was
+value-equal (System.Text.Json deserializes the array into a new List<T> instance, which is a
+different reference from the original List). This is not a bug in the contract's shape — a plain
+IReadOnlyList<T> is still the right public type for a collection-valued message field — it only
+means naive whole-record equality assertions on any future contract with a list/array member will
+have the same false-negative footgun. Fixed by asserting the scalar fields individually and
+letting xUnit's IEnumerable-aware Assert.Equal(IEnumerable<T>, IEnumerable<T>) handle the
+Readings list (xUnit does sequence-aware comparison for enumerables, unlike the plain record
+Equals it call into for the whole-object case).
+
+Verified: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across all 16
+projects (15 previous + the new test project). `dotnet test tests/WeakAppHandler.Contracts.Tests/
+...` -> 7/7 passed. Re-ran all five service .slnf files individually (ingestor/processor/gateway/
+notification/auth) -> all still build clean, confirming the new Contracts types don't break
+anything downstream. Re-confirmed WeakAppHandler.Contracts.csproj is still a bare
+`<Project Sdk="Microsoft.NET.Sdk"></Project>` with zero PackageReference/ProjectReference entries.
+  - tasks.json: TASK-011 status -> "done".
+
+NEXT: TASK-012 (RabbitMQ/MassTransit topology: readings.exchange, readings.ingested/readings.
+attempt routing keys, DLQ) is now unblocked (needs TASK-011 done + TASK-006 docker-compose done —
+TASK-006 is still pending, so TASK-012 is NOT actually startable yet). TASK-018 (Processor
+consumer + idempotency) needs TASK-014 (Processor pipeline schema + Testcontainers harness) and
+TASK-016 (Ingestor polling loop), both still pending and each several steps further down their own
+chains. Realistically the next few sessions should pick from the still-unblocked critical-path
+set: TASK-004 (vendor WeakApp, needs Docker/internet — untested from this session), TASK-006
+(base docker-compose, needs TASK-004), TASK-008 (Auth DB schema, needs TASK-003 done), TASK-013
+(Processor core DB schema, needs TASK-003 done). TASK-008 and TASK-013 are the safest bets if
+Docker/internet access from this sandboxed session is still unconfirmed — worth a future session
+explicitly testing `docker --version` / `git clone <external-url>` early before committing to a
+task that depends on either.

@@ -223,7 +223,7 @@
         "Шаг 3: Проверить, что тестовая пара IngestAttemptRecorded и ReadingsIngested имеет одинаковый batchId"
       ],
       "dependencies": ["TASK-002"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-012",
