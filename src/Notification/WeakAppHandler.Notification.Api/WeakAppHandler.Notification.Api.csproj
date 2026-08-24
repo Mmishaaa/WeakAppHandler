@@ -8,6 +8,7 @@
     <ProjectReference Include="..\WeakAppHandler.Notification.RuleEngine\WeakAppHandler.Notification.RuleEngine.csproj" />
     <ProjectReference Include="..\..\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
     <ProjectReference Include="..\..\SharedKernel\WeakAppHandler.SharedKernel\WeakAppHandler.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

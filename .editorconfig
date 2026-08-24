@@ -80,3 +80,7 @@ dotnet_diagnostic.SA1309.severity = none
 
 [Migrations/**.cs]
 generated_code = true
+
+[tests/**.cs]
+# xUnit test method names use MethodUnderTest_Scenario_ExpectedResult, which CA1707 flags.
+dotnet_diagnostic.CA1707.severity = none

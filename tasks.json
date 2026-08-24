@@ -79,7 +79,7 @@
         "Шаг 3: Симулировать недоступность зависимости — /health/ready должен вернуть 503"
       ],
       "dependencies": ["TASK-002"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-004",
