@@ -986,3 +986,137 @@ on git/dotnet/docker at all, with zero stdout/stderr and no recovery after rough
 several minutes. That session could not run `git add`/`git commit` at all, so everything existed only
 as uncommitted working-tree changes on this branch, and TASK-008 was intentionally left "pending" in
 tasks.json since the workflow's commit step never happened.
+
+[2026-08-28] TASK-009 - DONE. Picked this over TASK-010 (client-credentials grant, also unblocked
+by TASK-008 and equally "critical") because TASK-010's own acceptance criteria says machine tokens
+"проходят валидацию через тот же JWKS-эндпоинт, что и user-токены" - i.e. it depends on this task's
+JWKS endpoint/signing key existing first, even though tasks.json lists both with the same bare
+dependency on TASK-008. Also picked over TASK-006 (base docker-compose, only "high" priority, still
+unblocked and still the other real bottleneck blocking TASK-012/016 - worth prioritizing very soon).
+Branch `task/task-009-auth-jwt-login-jwks` off up-to-date `main`.
+
+Implemented directly in `WeakAppHandler.Auth` (still no separate Domain/Infrastructure split, same
+"single bounded responsibility" precedent as TASK-008):
+  - `Domain/SigningKey.cs` (`signing_keys` table: key_id, private_key_pkcs8, created_at) and
+    `Security/SigningKeyProvider.cs`/`SigningKeyInitializer.cs`: the Auth Service's own RS256 key is
+    generated once (RSA-2048) and persisted in Postgres, not regenerated per process - this was a
+    deliberate design choice, not something TASK-009's acceptance criteria demanded explicitly, but
+    without it every Auth restart would mint a new key and instantly invalidate every outstanding
+    access token plus every other service's already-cached JWKS response (JwksKeyCache from TASK-003
+    caches for 15 minutes). `SigningKeyInitializer.EnsureInitializedAsync` runs once at startup (in
+    `Program.cs`, inside a `CreateScope()` block before `app.Run()`) and loads-or-creates the row;
+    `SigningKeyProvider` then holds the live `RSA` instance as a process-lifetime singleton. No
+    multi-replica leader-election race handling was added (two instances racing to insert the first
+    key would both succeed with different GUIDs, since key_id has no natural single-row constraint) -
+    out of scope for a single-instance Auth Service, would be real over-engineering here.
+  - `Domain/RefreshToken.cs` (`refresh_tokens`: id, user_id, token_hash unique, created_at,
+    expires_at, revoked_at nullable, FK->users cascade) + `Security/RefreshTokenService.cs`: only a
+    SHA-256 hash of the opaque 256-bit refresh token is ever persisted, matching the same
+    hash-not-plaintext posture as `Pbkdf2PasswordHasher`. `RedeemAsync` rotates on every use (old
+    token row gets `revoked_at` set, a brand new token+row is issued) rather than just checking
+    expiry - this means a stolen-and-reused refresh cookie is detectable/inert after the legitimate
+    client's next refresh, which is why `Refresh_WithValidCookie_IssuesNewAccessTokenAndRevokesOld
+    RefreshToken` explicitly asserts the ORIGINAL cookie value 401s on a second use.
+  - `Security/JwtTokenService.cs`: issues RS256 access tokens, `iss=weakapphandler-auth`,
+    `aud=weakapphandler`, default 15 min lifetime (`Auth:Tokens:AccessTokenLifetimeMinutes`, new
+    `AuthTokenOptions`/`Auth:Tokens` config section - deliberately separate from ServiceDefaults'
+    existing `Auth:Authority`/`Auth:Audience`/`Auth:JwksUri` keys, which are the *validation*-side
+    seam TASK-042 will eventually point at this service, not this service's own token-issuance
+    config). `Security/RoleClaims.cs` maps `AuthRoles`' lowercase DB values ("viewer"/"admin", per
+    PRD §7.1's literal column values, TASK-008's own design choice) to the PascalCase claim values
+    ("Viewer"/"Admin") `ServiceDefaults.Auth.ServicePolicies`'s `RequireRole("Viewer","Admin")` /
+    `RequireRole("Admin")` actually check - TASK-003's own progress-log entry flagged this exact
+    casing mismatch as a landmine for "whoever builds TASK-009", so this is not a new discovery, just
+    closing that loop. Verified for real in `Jwks_PublishesKeyThatValidatesRealAccessTokenSignature`
+    via `principal.IsInRole("Admin")` (post default JWT claim-type mapping), not just a string
+    comparison against the raw "role" claim.
+  - `Api/AuthController.cs`: `POST /login` (email/password -> 401 on any invalid input/lookup/hash
+    mismatch, uniformly, to avoid leaking whether a request failed due to malformed input vs. wrong
+    password; issues access token + sets `refresh_token` httpOnly/Secure/SameSite=Strict cookie,
+    Path=/, expiry matching `RefreshTokenLifetime`) and `POST /refresh` (reads the cookie, redeems
+    via `RefreshTokenService`, 401 + deletes the cookie if invalid/expired/already-used). `Api/
+    JwksController.cs`: `GET /.well-known/jwks.json`, manually builds the JWK JSON (kty/use/alg/
+    kid/n/e) from `RSA.ExportParameters(includePrivateParameters: false)` rather than using
+    `JsonWebKeyConverter.ConvertFromRSASecurityKey` - explicit about the "false" so there is no
+    chance the private key components ever leak through this endpoint, whatever that converter's own
+    internal behavior happens to be.
+  - `/login` and `/refresh` were NOT specified with a path prefix anywhere in tasks.json/PRD (both
+    just say "POST /login"/"POST /token" bare) - kept them bare (`/login`, `/refresh`) rather than
+    inventing an `/api/v1/auth` prefix other services use for their own REST surfaces, since nothing
+    in this task's own acceptance criteria calls for one and TASK-010's own test_steps text also says
+    bare "POST /token".
+  - `Program.cs`: added `public partial class Program;` at the end (standard ASP.NET Core testing
+    pattern) so `WebApplicationFactory<Program>` can target this host in tests; wired
+    `AuthTokenOptions`/`SigningKeyProvider` (singleton)/`JwtTokenService`/`RefreshTokenService`
+    (scoped) into DI, and the startup key-initialization scope block. No auto-migration was added at
+    startup (matches TASK-013/014's precedent of assuming migrations are applied externally before
+    the service starts) - test setup below explicitly calls `Database.MigrateAsync()` itself before
+    booting the test host, same as `AuthDbContextTests`.
+  - `.csproj`: added an explicit `Microsoft.AspNetCore.Authentication.JwtBearer` PackageReference
+    (used directly now for `JwtSecurityToken`/`RsaSecurityKey`/`Base64UrlEncoder`, previously only
+    pulled in transitively via the ServiceDefaults project reference - made explicit since it's now a
+    direct dependency, not just an implementation detail of ServiceDefaults).
+
+REAL VERSION-CONFLICT BUG FOUND while wiring up the WebApplicationFactory-based tests (not
+hypothetical): adding `Microsoft.AspNetCore.Mvc.Testing` 10.0.11 to the test project triggered
+NU1109 ("package downgrade detected") because `Directory.Packages.props` had
+`Microsoft.Extensions.Hosting` centrally pinned at 10.0.8 (TASK-003's original choice) while
+Mvc.Testing 10.0.11 requires >=10.0.11 transitively. Fixed by bumping the central pin to 10.0.11
+(matching every other `10.0.11`-pinned ASP.NET Core package already in the repo) - re-verified the
+entire solution (`dotnet build WeakAppHandler.sln --no-incremental` and all five `.slnf` files
+individually) still builds with 0 warnings/errors after the bump, so this wasn't just papering over
+the symptom for one project.
+
+REAL CONFIGURATION-OVERRIDE BUG FOUND writing the tests (worth remembering for any future
+WebApplicationFactory-based test against a minimal-hosting `Program.cs` in this repo): the first
+attempt overrode the test's Postgres connection string via `builder.ConfigureAppConfiguration(...)
+.AddInMemoryCollection(...)` inside `WithWebHostBuilder` - this compiled and ran, but the app
+silently kept using `appsettings.json`'s own default connection string instead (proven by a real
+`28P01: password authentication failed for user "auth"` error against - it turned out - a live
+Postgres already listening on localhost:5432 on this dev machine, not the Testcontainers instance).
+Root cause: for minimal-hosting `Program.cs` (`WebApplication.CreateBuilder(args)`, not
+`Host.CreateDefaultBuilder().ConfigureWebHostDefaults(...)`), `WebApplicationFactory`'s deferred-host
+interception applies `ConfigureAppConfiguration` callbacks at a point in the pipeline that
+`appsettings.json` ends up layered on top of, so the override was silently masked rather than
+erroring. Fixed by using `builder.UseSetting("ConnectionStrings:Auth", connectionString)` instead
+(the documented-correct way to override a single config value for `WebApplicationFactory`, since
+`UseSetting` writes into host configuration that genuinely wins regardless of this ordering
+quirk) - confirmed fixed by the same test then correctly reaching the Testcontainers Postgres
+instance and passing.
+
+Testing: new `tests/WeakAppHandler.Auth.Tests/AuthEndpointsTests.cs`, `Microsoft.AspNetCore.Mvc.
+Testing`'s `WebApplicationFactory<Program>` boots the REAL Auth Service host (real controllers, real
+middleware pipeline, real startup signing-key initialization) against the shared Testcontainers
+Postgres fixture (migrated explicitly in `IAsyncLifetime.InitializeAsync` before the factory is
+built, same pattern as `AuthDbContextTests`), with `HandleCookies = false` on the test `HttpClient` so
+Set-Cookie/Cookie headers are asserted/replayed explicitly rather than relying on the default
+cookie-container's own Secure-over-http handling (which would have been a second, unrelated source of
+flakiness on top of the config-override bug above). Six tests, all directly exercising this task's
+three acceptance criteria: valid login returns an access token and an httpOnly Set-Cookie; wrong
+password 401s; a real access token round-trips through the real JWKS endpoint's published key
+(`JsonWebKeySet` parse + `JwtSecurityTokenHandler.ValidateToken` + `principal.IsInRole("Admin")`); a
+token forged with an unrelated freshly-generated RSA key fails validation against that same JWKS
+key set (`Assert.ThrowsAny<SecurityTokenException>`); a valid refresh cookie yields a new access
+token and revokes/rotates the old refresh token (replay of the original cookie now 401s); a request
+with no refresh cookie at all 401s.
+
+Verified: `dotnet build auth.slnf --no-incremental` -> 0 warnings/0 errors (5 projects: SharedKernel,
+ServiceDefaults, Auth, IntegrationTesting, Auth.Tests). `dotnet test auth.slnf` against real
+Testcontainers Postgres -> 13/13 passed (5 Pbkdf2PasswordHasherTests + 2 AuthDbContextTests + 6 new
+AuthEndpointsTests). `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across
+all 20 projects. `dotnet test WeakAppHandler.sln` -> 34/34 passed across all five test projects
+(7 Contracts + 8 ServiceDefaults + 3 Ingestor + 3 Processor.Infrastructure + 13 Auth). Rebuilt all
+five service `.slnf` files individually post-change -> all still 0 warnings/0 errors. README.md
+updated with a new "Auth Service — user login, refresh and JWKS" section documenting the three
+endpoints, token lifetimes, and the PascalCase-role/lowercase-DB-role distinction. Not a frontend
+change, so `npm` checks don't apply.
+  - tasks.json: TASK-009 status -> "done".
+
+NEXT: TASK-010 (client-credentials grant for machine JWTs, scope `ingestion:admin`) is the natural
+next step - it can now reuse `JwtTokenService`'s `Issuer`/`Audience` constants and
+`SigningKeyProvider` as this entry's own doc comment on `JwtTokenService` already anticipates, just
+needs its own claim shape (client_id-as-subject, `scope` claim, no user/role) and a `POST /token`
+endpoint validating `service_clients.client_secret_hash` via the existing `Pbkdf2PasswordHasher`.
+TASK-006 (base docker-compose) remains the other unblocked task worth prioritizing soon - it is the
+only thing still blocking TASK-012 (RabbitMQ topology) and transitively TASK-016 (Ingestor polling
+loop), which is the deeper critical-path bottleneck at this point.
