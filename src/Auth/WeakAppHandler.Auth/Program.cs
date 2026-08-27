@@ -1,8 +1,10 @@
+using WeakAppHandler.Auth.Persistence;
 using WeakAppHandler.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddAuthPersistence(builder.Configuration);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 

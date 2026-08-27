@@ -169,7 +169,7 @@
         "Шаг 3: Свериться с README — учётные данные совпадают с данными в БД"
       ],
       "dependencies": ["TASK-003"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-009",

@@ -63,6 +63,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.IntegrationT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.Processor.Infrastructure.Tests", "tests\WeakAppHandler.Processor.Infrastructure.Tests\WeakAppHandler.Processor.Infrastructure.Tests.csproj", "{DAC58AFD-6867-498B-8267-155B16192C13}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.Auth.Tests", "tests\WeakAppHandler.Auth.Tests\WeakAppHandler.Auth.Tests.csproj", "{1F999A26-CF20-464F-9293-9EFDC8789B68}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -301,6 +303,18 @@ Global
 		{DAC58AFD-6867-498B-8267-155B16192C13}.Release|x64.Build.0 = Release|Any CPU
 		{DAC58AFD-6867-498B-8267-155B16192C13}.Release|x86.ActiveCfg = Release|Any CPU
 		{DAC58AFD-6867-498B-8267-155B16192C13}.Release|x86.Build.0 = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|x64.Build.0 = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Debug|x86.Build.0 = Debug|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|x64.ActiveCfg = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|x64.Build.0 = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|x86.ActiveCfg = Release|Any CPU
+		{1F999A26-CF20-464F-9293-9EFDC8789B68}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -334,5 +348,6 @@ Global
 		{D0D6B8B0-AC35-B3FA-0B96-A9B0E4A3253E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{23E4A389-25E3-4151-981B-6E3CA34ED274} = {D0D6B8B0-AC35-B3FA-0B96-A9B0E4A3253E}
 		{DAC58AFD-6867-498B-8267-155B16192C13} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{1F999A26-CF20-464F-9293-9EFDC8789B68} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal
