@@ -866,3 +866,123 @@ TASK-006 (base docker-compose) remain the other ready critical/high tasks with n
 prerequisites — TASK-006 is worth prioritizing soon since it also unblocks TASK-012 (RabbitMQ
 topology), which TASK-016 (Ingestor polling loop) needs before it can be picked up, and TASK-016 is
 now the most direct remaining blocker on the Processor consumer chain this task just unblocked.
+
+[2026-08-27] TASK-008 - IMPLEMENTATION AND VERIFICATION DONE, but status left "pending" and NOTHING
+COMMITTED — see environment blocker below. Picked this over TASK-006 (base docker-compose, only
+"high" priority) because TASK-008 is the highest-priority task whose dependencies were actually
+satisfied (TASK-003 done); TASK-012/TASK-016, the other critical tasks, are still blocked behind
+TASK-006. Branch `task/task-008-auth-db-schema` created from up-to-date `main`.
+
+Implemented directly inside the existing single `WeakAppHandler.Auth` project (no separate
+Domain/Infrastructure split — matches §4.2's "Auth Service: Minimal; single bounded responsibility",
+same precedent as Ingestor having no Domain layer):
+  - `Domain/User.cs`, `Domain/ServiceClient.cs`, `Domain/AuthRoles.cs` (string constants "viewer"/
+    "admin" — deliberately plain strings matching PRD §7.1's literal lowercase `role` values, not an
+    enum-with-HasConversion<string> like Processor's `IngestBatchOutcome`, to avoid that pattern's
+    latent risk of storing the C# member name's exact casing (e.g. "HttpError") rather than the
+    snake_case/lowercase values §7.1 specifies).
+  - `Security/Pbkdf2PasswordHasher.cs` - PBKDF2-SHA256 (PRD §7.1 explicitly allows PBKDF2 as an
+    alternative to Argon2id; used the BCL's `Rfc2898DeriveBytes.Pbkdf2` instead of pulling in
+    Microsoft.AspNetCore.Identity, since only a small self-contained hash/verify primitive was
+    needed). Stored format `"{iterations}.{saltBase64}.{keyBase64}"`. Will be reused as-is by
+    TASK-009 (login: `Verify`) and TASK-010 (client-credentials: `Verify` against
+    `service_clients.client_secret_hash`).
+  - `Persistence/AuthDbContext.cs` + `Persistence/Configurations/{UserConfiguration,
+    ServiceClientConfiguration}.cs` (`ApplyConfigurationsFromAssembly`, same shape as Processor's
+    `CoreDbContext`), `Persistence/AuthPersistenceServiceCollectionExtensions.cs`
+    (`AddAuthPersistence` - throws on missing `ConnectionStrings:Auth`, registers
+    `UseSnakeCaseNamingConvention()` + an EF Core `AddDbContextCheck<AuthDbContext>(tags:["ready"])`
+    health check, identical pattern to `ProcessorInfrastructureServiceCollectionExtensions`). Wired
+    into `Program.cs` right after `AddServiceDefaults()`. Added `ConnectionStrings:Auth` to
+    `appsettings.json` (`Username=auth;Password=auth_password`, same placeholder-credential
+    convention as Processor's `ConnectionStrings:Processor` - TASK-043 will replace both with real
+    least-privilege roles).
+  - `Persistence/Configurations/AuthSeedData.cs` - two seed `User`s (viewer/admin,
+    `viewer@weakapphandler.local` / `Viewer#12345`, `admin@weakapphandler.local` / `Admin#12345`)
+    and one seed `ServiceClient` (`gateway-ingestor` / `gateway-ingestor-secret-CHANGE-ME`, scope
+    `ingestion:admin`), consumed via `HasData` in the two configurations.
+    IMPORTANT non-obvious correctness point for whoever touches this file next: `HasData` requires
+    the exact same literal seed values on every model evaluation (EF diffs the "live" model against
+    the migration snapshot on every startup and would treat any drift as a pending model change, and
+    would bake a *different* literal hash into a freshly-generated migration each time `dotnet ef
+    migrations add` is re-run). This means the seed users' `PasswordHash`/`ClientSecretHash` and
+    `CreatedAt` MUST be computed deterministically, not with `Pbkdf2PasswordHasher.Hash(password)`
+    (random salt) or `DateTimeOffset.UtcNow`. Used a 3-arg `Pbkdf2PasswordHasher.Hash(password, salt,
+    iterations)` overload with three hardcoded 16-byte salts and a fixed `SeedCreatedAt = new(2026, 1,
+    1, ...)` for exactly this reason. Also had to declare `SeedCreatedAt`/the salt fields *before* the
+    `Users`/`ServiceClients` list-initializer properties in the file (C# static field/property
+    initializers run in textual declaration order within a type) - declaring them after would have
+    silently read `SeedCreatedAt`'s zero-value default instead of the intended 2026-01-01 date.
+  - `.csproj`: added `Npgsql.EntityFrameworkCore.PostgreSQL`, `EFCore.NamingConventions`,
+    `Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore`,
+    `Microsoft.EntityFrameworkCore.Design` (all versions already pinned in
+    `Directory.Packages.props` from TASK-013/014, no new package versions needed).
+  - Migration `InitialAuth` generated via `dotnet ef migrations add ... --project/--startup-project`
+    both pointed at `WeakAppHandler.Auth.csproj` (single project, unlike Processor's split
+    Infrastructure/Worker). Read the generated migration file directly rather than trusting the CLI
+    exit code: confirms `users`/`service_clients` tables, the unique index on `users.email`, and two
+    `InsertData` calls with literal (non-random) hash strings baked in, exactly as intended.
+  - New `README.md` section "Auth Service — seed credentials" documenting both seed users' email/
+    password and the service client's client_id/secret/scope, satisfying this task's third acceptance
+    criterion.
+  - New `tests/WeakAppHandler.Auth.Tests` project (none existed for Auth before this task), added to
+    `WeakAppHandler.sln` (`tests` solution folder) and to `auth.slnf`: 5 tests for
+    `Pbkdf2PasswordHasher` (correct-password verify succeeds, wrong-password verify fails, a
+    malformed stored hash returns false instead of throwing, two `Hash(password)` calls on the same
+    password produce different output because of random salting, and the 3-arg deterministic
+    overload with a fixed salt+iteration count produces byte-identical output twice) - this exists
+    because the hasher is genuinely new security-critical logic this task introduced, not because the
+    task's own acceptance criteria demanded a test project.
+  - Added `AuthDbContextTests.cs` + `IntegrationCollectionDefinition.cs`, wired to the shared
+    `WeakAppHandler.IntegrationTesting` Testcontainers harness (same `[Collection("Integration")]` /
+    `IntegrationTestFixture` pattern TASK-014's `CoreDbContextTests` established) instead of relying
+    only on the throwaway-container-plus-manual-psql verification described below: two tests migrate
+    a real Postgres container and assert the seed viewer/admin users and the `gateway-ingestor`
+    service client actually exist and verify against their known plaintext password/secret. This
+    directly automates this task's own three `test_steps` instead of only having proven them by hand
+    once. Total: 7 tests, all passing.
+
+VERIFIED FOR REAL, all before the environment broke (see blocker below):
+  - `dotnet build src/Auth/WeakAppHandler.Auth/WeakAppHandler.Auth.csproj --no-incremental` -> 0
+    warnings/0 errors.
+  - `dotnet build auth.slnf --no-incremental` -> 0 warnings/0 errors (4 projects: SharedKernel,
+    ServiceDefaults, Auth, Auth.Tests).
+  - `dotnet test auth.slnf` -> 5/5 passed.
+  - `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across all 22 projects
+    (confirms nothing elsewhere broke).
+  - Real Postgres verification (`docker info` confirmed daemon reachable, same as every prior
+    session): started a throwaway `postgres:17-alpine` container on a scratch port, ran `dotnet ef
+    database update --connection ...` against it, then used `docker exec ... psql` directly (same
+    "docker run a throwaway container, apply, inspect, tear down" pattern TASK-013 used before the
+    Testcontainers harness existed):
+    - `\d users` confirmed columns `id/email/display_name/password_hash/role/created_at`, PK on
+      `id`, unique index `ix_users_email`.
+    - `\d service_clients` confirmed columns `client_id/client_secret_hash/scopes` (scopes as real
+      Postgres `text[]`), PK on `client_id`.
+    - `SELECT id, email, role, display_name FROM users` returned exactly the two seed rows
+      (viewer/admin) with the expected emails/roles/display names.
+    - `SELECT client_id, scopes FROM service_clients` returned exactly one row,
+      `gateway-ingestor` / `{ingestion:admin}`.
+    - Removed the throwaway container afterward (`docker rm -f`).
+  This directly exercises this task's own three test_steps (apply migrations to a clean DB, SELECT
+  both tables and confirm seed rows, cross-check against README) - the README values match what was
+  just observed in the database.
+
+RESOLVED (was previously blocked, see below): the shell execution backend that had stopped running
+commands came back in a later session with no changes needed on our side - `git status` confirmed
+the branch and all working-tree changes described above were still intact and untouched. Added the
+`AuthDbContextTests` integration tests described above, then verified for real: `dotnet build
+auth.slnf` (0 warnings/0 errors), `dotnet test tests/WeakAppHandler.Auth.Tests/...` (7/7 passed,
+including the two new Testcontainers-backed integration tests against a real Postgres container -
+Docker Desktop needed to be started first via `Start-Process`, it was not already running), and
+`dotnet build WeakAppHandler.sln` (0 warnings/0 errors across all 23 projects). Committed, pushed
+`task/task-008-auth-db-schema`, opened and squash-merged the PR, synced `main`, and flipped TASK-008
+to `"done"` in tasks.json.
+
+Original blocker for reference (no longer relevant - kept only as a historical note in case the same
+symptom recurs): partway through a final full-solution regression test run in a prior session, the
+PowerShell tool itself stopped executing ANY allow-listed command, including ones with no dependency
+on git/dotnet/docker at all, with zero stdout/stderr and no recovery after roughly ten retries over
+several minutes. That session could not run `git add`/`git commit` at all, so everything existed only
+as uncommitted working-tree changes on this branch, and TASK-008 was intentionally left "pending" in
+tasks.json since the workflow's commit step never happened.
