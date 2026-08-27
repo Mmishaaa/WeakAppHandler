@@ -577,3 +577,88 @@ PRD corrections above (HTTP 500 as a retryable upstream error; empty-array succe
 mid-read stream truncation as the real corrupted-payload trigger) are load-bearing for whoever
 picks up TASK-015 (Ingestor resilience pipeline) next — read `docs/weakapp-observed-response.json`
 directly rather than relying on this summary before implementing that task's Polly policies.
+
+[2026-08-27] TASK-015 - DONE. Picked this over TASK-006/008/013 because it directly builds on
+TASK-005's live-observed WeakApp failure modes (documented above) and sits on the critical path
+for TASK-016 (Ingestor polling loop), which needs a working resilient client to call. Branch
+`task/task-015-ingestor-resilience-pipeline` already had most of the implementation scaffolded
+from a prior interrupted iteration; resumed and finished it rather than redoing it.
+
+Implemented under `src/Ingestor/WeakAppHandler.Ingestor/WeakApp/`:
+  - `WeakAppOptions` / `WeakAppOptionsValidator` — bound from a `WeakApp` config section;
+    validator enforces the load-bearing invariant `AttemptTimeoutSeconds < TotalTimeoutSeconds <
+    PollingIntervalSeconds`, so retries can never overlap the next scheduled poll.
+  - `WeakAppResiliencePipelineFactory.Configure` — builds a four-strategy Polly v8 pipeline in
+    nesting order: outer total-budget timeout -> retry (exponential backoff + jitter, honouring
+    `Retry-After` exactly via a `DelayGenerator` when the failure is HTTP 429) -> circuit breaker
+    -> inner per-attempt timeout. `IsTransientFailure` treats HTTP >=500 and 429 as retryable,
+    matching TASK-005's observed 500/502/504/429 failure modes (not just the PRD's originally
+    documented 502/504).
+  - `WeakAppClient` — turns the resilience-wrapped `HttpClient`'s outcome (response or the
+    exception the pipeline gave up on: `TimeoutRejectedException`, `BrokenCircuitException`,
+    `HttpRequestException`) into a classified `WeakAppFetchResult`/`IngestOutcome`, matching
+    TASK-005's real observations: a mid-body-read `IOException`/`JsonException` is treated as the
+    real-world `Corrupted` case (the PRD's decompiled `{"error":"data corrupted"}` 200 body was
+    never actually reproduced live), and a well-formed empty array is `Success`, not `Corrupted`.
+  - `WeakAppServiceCollectionExtensions.AddWeakAppClient` — wires the typed `HttpClient` +
+    `AddResilienceHandler` + options validation via `AddOptions<T>().ValidateOnStart()`.
+  - `appsettings.json` — added a `WeakApp` section with the dev container's `BaseUrl`/`ApiKey`
+    (matches TASK-004's vendored container: `http://localhost:8080` / `X-Api-Key: supersecret`)
+    and the resilience knobs (10s poll interval, 3s attempt timeout, 8s total budget, 3 retries,
+    0.5 failure ratio / 4 minimum throughput / 30s sampling+break duration for the breaker).
+  - `Directory.Packages.props` — added `Microsoft.Extensions.Http.Resilience` 10.9.0 (Polly v8
+    wrapper used by `AddResilienceHandler`) and, test-only, `Microsoft.Extensions.TimeProvider.
+    Testing` 10.9.0 (added while scaffolding but ended up unused — the final tests use real small
+    delays instead of a fake clock, see below; left the package version in place since a future
+    task may still want it, but nothing currently references it).
+
+Two real fixes made while finishing the scaffolded code (found by `dotnet build`, not
+hypothetical): (1) CA1848 — `WeakAppClient`'s four `logger.LogWarning(...)` calls were converted
+to source-generated `[LoggerMessage]` static partial methods (this repo's first use of that
+pattern; no prior convention existed to follow). (2) SA1204/SA1202 — StyleCop's combined ordering
+rule (public instance members before private; static before instance within an accessibility
+group) required reordering the class to: public `GetMetersAsync`, then private static `Failure` +
+the four `LoggerMessage` methods, then private instance `ClassifyResponseAsync`.
+
+Testing: new `tests/WeakAppHandler.Ingestor.Tests` project (none existed for Ingestor before this
+task), added to `WeakAppHandler.sln` via `dotnet sln add` and to `ingestor.slnf`. Rather than
+mocking `IWeakAppClient` or the resilience pipeline, tests build the exact production pipeline
+(`WeakAppResiliencePipelineFactory.Configure` against a real `ResiliencePipelineBuilder`) and run
+it through a real `WeakAppClient` + real `HttpClient`, with only the innermost `HttpMessageHandler`
+faked (`RecordingHandler`, a scripted response queue that repeats its last entry once exhausted).
+Covers exactly TASK-015's three acceptance criteria:
+  1. `GetMetersAsync_TransientServerErrorThenSuccess_RetriesAndRecovers` — two 502s then a 200;
+     asserts eventual `Success` and exactly 3 backend calls (proving the retry actually happened).
+  2. `GetMetersAsync_RateLimitedWithRetryAfter_WaitsForHeaderDurationNotDefaultBackoff` — a 429
+     with an 800ms `Retry-After` then a 200; asserts `Success` and, critically, that wall-clock
+     elapsed time was >=700ms — distinguishing "the header was honoured" from "the default ~200ms
+     backoff fired and the header was ignored" (a bug this pipeline's `DelayGenerator` specifically
+     exists to prevent). Deliberately used a real (short) delay instead of a `FakeTimeProvider`:
+     Polly's delay scheduling under a fake clock needs the test to manually pump the clock forward
+     while a background task is awaiting, which is a real synchronization hazard for a first test
+     in this style — a small live wait is simpler and reliable, at the cost of ~1s of real test time.
+  3. `GetMetersAsync_ConsecutiveFailures_OpensCircuitAndStopsReachingWeakApp` — backend always
+     returns 502, with `CircuitBreakerMinimumThroughput=2`/`FailureRatio=0.5` (tighter than the
+     production default of 4, specifically to trip the breaker within one call's own retry budget
+     without needing many real calls). First `GetMetersAsync` call already surfaces
+     `IngestOutcome.HttpError` with a "circuit breaker open" message (the breaker trips mid-retry,
+     inside the very first call — expected, not a bug: BrokenCircuitException is not itself a
+     retryable outcome). The real assertion is the second call: backend call count is IDENTICAL
+     before and after it, proving the open breaker fails fast without ever reaching the fake
+     WeakApp handler.
+  One StyleCop fix needed in the test file itself: SA1118 (Assert.True's message argument spanning
+  multiple lines) — extracted the boolean condition and message into local variables first.
+
+Verified: `dotnet build ingestor.slnf` -> 0 warnings/0 errors (5 projects: SharedKernel,
+ServiceDefaults, Contracts, Ingestor, Ingestor.Tests). `dotnet test ingestor.slnf` -> 3/3 passed.
+`dotnet build WeakAppHandler.sln` -> 0 warnings/0 errors across all 18 projects (confirms nothing
+elsewhere broke). Not a frontend change, so `npm` checks don't apply.
+  - tasks.json: TASK-015 status -> "done".
+
+NEXT: TASK-016 (Ingestor polling loop: a `BackgroundService` that calls `IWeakAppClient.
+GetMetersAsync` on `PollingIntervalSeconds`, maps `WeakAppFetchResult` into
+`IngestAttemptRecorded`/`ReadingsIngested` sharing one `BatchId`, and publishes via MassTransit) is
+now unblocked — it is the direct, natural next step, since `WeakAppFetchResult`'s own doc comment
+already points at it, and `Worker.cs` is still just a placeholder delay loop with `AddWeakAppClient`
+registered but never actually called. TASK-006/008/013 remain unblocked and independent if a future
+session prefers a different critical-path branch.
