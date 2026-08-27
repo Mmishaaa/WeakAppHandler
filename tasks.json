@@ -277,7 +277,7 @@
         "Шаг 3: Убедиться, что контейнеры Testcontainers поднимаются и уничтожаются автоматически после теста"
       ],
       "dependencies": ["TASK-013"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-015",

@@ -16,7 +16,5 @@ public sealed class Reading
 
     public required bool IsChanged { get; init; }
 
-    // References ingest_batches.id (added by the pipeline schema in TASK-014); no FK constraint
-    // is declared here since that table does not exist yet at this migration.
     public required Guid BatchId { get; init; }
 }

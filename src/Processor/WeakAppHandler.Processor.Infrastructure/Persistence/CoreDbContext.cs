@@ -13,6 +13,12 @@ public sealed class CoreDbContext(DbContextOptions<CoreDbContext> options) : DbC
 
     public DbSet<MeterCurrentState> MeterCurrentStates => Set<MeterCurrentState>();
 
+    public DbSet<IngestBatch> IngestBatches => Set<IngestBatch>();
+
+    public DbSet<ProcessedMessage> ProcessedMessages => Set<ProcessedMessage>();
+
+    public DbSet<ReadingHourly> ReadingsHourly => Set<ReadingHourly>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CoreDbContext).Assembly);
