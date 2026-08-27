@@ -8,8 +8,8 @@ namespace WeakAppHandler.Auth.Security;
 
 /// <summary>
 /// Issues RS256-signed access tokens for authenticated users. The machine-to-machine
-/// client-credentials grant (TASK-010) reuses <see cref="Issuer"/>/<see cref="Audience"/> and
-/// <see cref="SigningKeyProvider"/> but has its own claim shape, so it is not built here.
+/// client-credentials grant (<see cref="ServiceClientTokenService"/>) reuses <see cref="Issuer"/>/
+/// <see cref="Audience"/> and <see cref="SigningKeyProvider"/> but has its own claim shape.
 /// </summary>
 public sealed class JwtTokenService(SigningKeyProvider signingKeyProvider, TimeProvider timeProvider, IOptions<AuthTokenOptions> options)
 {

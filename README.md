@@ -37,3 +37,13 @@ stable across Auth Service restarts.
 access token and rotates the refresh token (the old one is revoked, a new cookie is set). Refresh
 tokens default to a 7-day lifetime (`Auth:Tokens:RefreshTokenLifetimeDays`) and are stored only as a
 SHA-256 hash in the `refresh_tokens` table, never in plaintext.
+
+## Auth Service — client-credentials grant
+
+`POST /token` accepts `{ "clientId": "...", "clientSecret": "..." }` for a seed service client (see
+above). On success it returns `{ accessToken, tokenType, expiresInSeconds, scope }`. This is the
+only synchronous inter-service path in the system (Gateway → Ingestor); the returned access token
+is an RS256 JWT with the same `iss`/`aud`/lifetime as a user access token and validates through the
+same `GET /.well-known/jwks.json` key, but carries no `role` claim — instead `sub` is the client id
+and `scope` is a space-separated list of the client's granted scopes (e.g. `ingestion:admin`). An
+unknown client id or wrong secret returns `401 Unauthorized`.

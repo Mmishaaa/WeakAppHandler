@@ -1120,3 +1120,84 @@ endpoint validating `service_clients.client_secret_hash` via the existing `Pbkdf
 TASK-006 (base docker-compose) remains the other unblocked task worth prioritizing soon - it is the
 only thing still blocking TASK-012 (RabbitMQ topology) and transitively TASK-016 (Ingestor polling
 loop), which is the deeper critical-path bottleneck at this point.
+
+[2026-08-28] TASK-010 - DONE. Picked this over TASK-006 (base docker-compose, only "high" priority)
+because it was explicitly flagged as the natural next step by the prior entry and is the last piece
+of Auth Service security work that several already-unblocked tasks are waiting on (TASK-017 Ingestor
+admin REST, TASK-026 Gateway REST proxying, both need a machine JWT to call with). Branch
+`task/task-010-auth-client-credentials` off up-to-date `main`.
+
+Implemented directly in `WeakAppHandler.Auth` (same "single bounded responsibility" project, no new
+Domain/Infrastructure split needed - this reuses TASK-008's `ServiceClient` entity/table and
+TASK-009's `SigningKeyProvider` as-is):
+  - `Security/ServiceClientTokenService.cs` - new class (per `JwtTokenService`'s own doc comment
+    from TASK-009, which explicitly said the client-credentials grant "is not built here" and would
+    need its own claim shape). Reuses `JwtTokenService.Issuer`/`.Audience`/`SigningKeyProvider` so
+    machine tokens validate through the exact same `/.well-known/jwks.json` key as user tokens, but
+    claims are: `sub`=client_id (no `role` claim at all - RoleClaims/ServicePolicies deliberately
+    don't apply to machine tokens), `jti`, and a single space-separated `scope` claim (the standard
+    OAuth2 client-credentials convention, e.g. `"ingestion:admin"` today, but supports multiple
+    space-separated scopes without a schema change if a service client is ever granted more than
+    one). Reuses `AuthTokenOptions.AccessTokenLifetime` (15 min default) rather than inventing a
+    separate machine-token lifetime config knob - PRD §5/§7 don't distinguish a TTL for this grant,
+    and Gateway calling Ingestor synchronously can simply re-request a token per call or cache one
+    for its short lifetime; a second lifetime knob before anything needs it would be speculative.
+  - `Api/TokenRequest.cs` (`ClientId`, `ClientSecret`) / `Api/TokenResponse.cs` (`AccessToken`,
+    `TokenType`, `ExpiresInSeconds`, `Scope`) - same one-record-per-file convention as
+    `LoginRequest`/`LoginResponse`.
+  - `Api/AuthController.cs`: added `POST /token` (bare path, no prefix - matches this task's own
+    test_steps text "POST /token" and TASK-009's precedent of bare `/login`/`/refresh` with no
+    invented `/api/v1/auth` prefix). Looks up `ServiceClient` by `ClientId`, verifies
+    `ClientSecret` against `ClientSecretHash` via the existing `Pbkdf2PasswordHasher.Verify` (same
+    primitive TASK-008 built for user passwords - no new hashing code needed), returns 401
+    uniformly on unknown client id or wrong secret (same "don't leak which part failed" posture as
+    `/login`).
+  - `Program.cs`: registered `ServiceClientTokenService` as scoped DI, alongside the existing
+    `JwtTokenService`/`RefreshTokenService`.
+  - Updated `JwtTokenService`'s doc comment (previously said the client-credentials grant "is not
+    built here", now points at `ServiceClientTokenService` as the concrete class that reuses its
+    `Issuer`/`Audience`).
+
+REAL TEST BUG FOUND (not hypothetical): first attempt asserted
+`principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value` after `JwtSecurityTokenHandler.
+ValidateToken` and got `null` instead of the client id - `JwtSecurityTokenHandler`'s default inbound
+claim-type mapping rewrites the short JWT claim name `"sub"` to `ClaimTypes.NameIdentifier` on the
+resulting `ClaimsPrincipal` (the same mapping mechanism that makes TASK-009's existing
+`principal.IsInRole("Admin")` test work at all, since `"role"` gets remapped to `ClaimTypes.Role`
+the same way) - so any test asserting a validated principal's claims must look them up by their
+post-mapping `ClaimTypes.*` constant, not by the raw `JwtRegisteredClaimNames.*` the token was
+*issued* with. Fixed by asserting `principal.FindFirst(ClaimTypes.NameIdentifier)?.Value` instead.
+`scope` has no default inbound mapping (it's a non-standard short name), so `FindFirst("scope")`
+correctly finds it unchanged - worth remembering this claim-mapping distinction for any future test
+that validates a token through `JwtSecurityTokenHandler` rather than just decoding it unvalidated.
+
+Testing: added two tests to the existing `tests/WeakAppHandler.Auth.Tests/AuthEndpointsTests.cs`
+(same `WebApplicationFactory<Program>` + real Testcontainers Postgres pattern as every other test in
+that file, no mocking): `Token_WithValidServiceClientCredentials_ReturnsAccessTokenScopedIngestion
+Admin` (valid seed `gateway-ingestor` credentials -> 200, `scope` in the response body equals
+`"ingestion:admin"`, and - critically - the returned access token round-trips through the real
+`/.well-known/jwks.json` endpoint via `JwtSecurityTokenHandler.ValidateToken` with `sub`/`scope`
+claims asserted on the *validated* principal, not just the raw unvalidated JWT - directly covering
+this task's third acceptance criterion "проходит валидацию через тот же JWKS-эндпоинт") and
+`Token_WithWrongClientSecret_ReturnsUnauthorized` (401, covering the second acceptance criterion).
+Also updated the README with a new "Auth Service — client-credentials grant" section documenting the
+endpoint, request/response shape, and the no-role/scope-claim distinction from user tokens.
+
+Verified: `dotnet build auth.slnf --no-incremental` -> 0 warnings/0 errors (5 projects: SharedKernel,
+ServiceDefaults, Auth, IntegrationTesting, Auth.Tests). `dotnet test auth.slnf` against real
+Testcontainers Postgres -> 15/15 passed (5 Pbkdf2PasswordHasherTests + 2 AuthDbContextTests + 8
+AuthEndpointsTests, up from 13 before this task's 2 new tests). `dotnet build WeakAppHandler.sln
+--no-incremental` -> 0 warnings/0 errors across all 20 projects (confirms nothing elsewhere broke).
+Not a frontend change, so `npm` checks don't apply.
+  - tasks.json: TASK-010 status -> "done".
+
+NEXT: With Auth Service security work (TASK-008/009/010) now complete, the two other unblocked
+critical/high tasks are: TASK-006 (base docker-compose: WeakApp+RabbitMQ+PostgreSQL, three networks,
+health-check gating) - still the deeper critical-path bottleneck, since it's the only thing blocking
+TASK-012 (RabbitMQ/MassTransit topology) and transitively TASK-016 (Ingestor polling loop, which
+itself blocks TASK-017/018 and everything downstream of the Processor consumer chain); and TASK-007
+(architecture docs/ADRs, only "medium" priority, needs TASK-002+003 both already done). TASK-006 is
+the stronger pick for critical-path progress. TASK-017 (Ingestor admin REST, machine-JWT-protected)
+is now unblocked on the Auth side (TASK-010 done) but still needs TASK-016 (Ingestor polling loop)
+first, which itself needs TASK-012, which needs TASK-006 - so TASK-006 remains the real bottleneck
+for the entire M2 Ingestor/Processor chain at this point.
