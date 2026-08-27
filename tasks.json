@@ -205,7 +205,7 @@
         "Шаг 3: Повторить запрос с неверным secret — убедиться в отказе"
       ],
       "dependencies": ["TASK-008"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-011",

@@ -11,6 +11,7 @@ public sealed class AuthController(
     AuthDbContext db,
     JwtTokenService tokenService,
     RefreshTokenService refreshTokenService,
+    ServiceClientTokenService serviceClientTokenService,
     TimeProvider timeProvider,
     IOptions<AuthTokenOptions> tokenOptions) : ControllerBase
 {
@@ -54,6 +55,24 @@ public sealed class AuthController(
         AppendRefreshCookie(result.RawToken);
 
         return Ok(BuildResponse(result.User.Role, result.User.Email, tokenService.CreateUserAccessToken(result.User)));
+    }
+
+    [HttpPost("/token")]
+    public async Task<ActionResult<TokenResponse>> Token([FromBody] TokenRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(request.ClientId) || string.IsNullOrEmpty(request.ClientSecret))
+        {
+            return Unauthorized();
+        }
+
+        var client = await db.ServiceClients.SingleOrDefaultAsync(c => c.ClientId == request.ClientId, cancellationToken);
+        if (client is null || !Pbkdf2PasswordHasher.Verify(request.ClientSecret, client.ClientSecretHash))
+        {
+            return Unauthorized();
+        }
+
+        var accessToken = serviceClientTokenService.CreateAccessToken(client);
+        return Ok(new TokenResponse(accessToken, "Bearer", (int)serviceClientTokenService.AccessTokenLifetime.TotalSeconds, string.Join(' ', client.Scopes)));
     }
 
     private LoginResponse BuildResponse(string role, string email, string accessToken)

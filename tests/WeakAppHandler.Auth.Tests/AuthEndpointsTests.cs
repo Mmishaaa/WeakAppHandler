@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -138,6 +139,45 @@ public sealed class AuthEndpointsTests(IntegrationTestFixture fixture) : IAsyncL
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/refresh");
         var response = await Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Token_WithValidServiceClientCredentials_ReturnsAccessTokenScopedIngestionAdmin()
+    {
+        var response = await Client.PostAsJsonAsync(
+            "/token",
+            new { clientId = AuthSeedData.ServiceClientId, clientSecret = AuthSeedData.ServiceClientSecret });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var accessToken = body.GetProperty("accessToken").GetString();
+        Assert.False(string.IsNullOrEmpty(accessToken));
+        Assert.Equal(AuthSeedData.ServiceClientScope, body.GetProperty("scope").GetString());
+
+        var keySet = new JsonWebKeySet(await Client.GetStringAsync("/.well-known/jwks.json"));
+        var principal = new JwtSecurityTokenHandler().ValidateToken(
+            accessToken,
+            new TokenValidationParameters
+            {
+                ValidIssuer = "weakapphandler-auth",
+                ValidAudience = "weakapphandler",
+                IssuerSigningKeys = keySet.GetSigningKeys(),
+            },
+            out _);
+
+        Assert.Equal(AuthSeedData.ServiceClientId, principal.FindFirst(ClaimTypes.NameIdentifier)?.Value);
+        Assert.Equal(AuthSeedData.ServiceClientScope, principal.FindFirst("scope")?.Value);
+    }
+
+    [Fact]
+    public async Task Token_WithWrongClientSecret_ReturnsUnauthorized()
+    {
+        var response = await Client.PostAsJsonAsync(
+            "/token",
+            new { clientId = AuthSeedData.ServiceClientId, clientSecret = "not-the-real-secret" });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

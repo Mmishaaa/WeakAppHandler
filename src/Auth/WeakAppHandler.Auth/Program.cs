@@ -12,6 +12,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<ServiceClientTokenService>();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
