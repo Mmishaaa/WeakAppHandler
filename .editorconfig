@@ -78,7 +78,7 @@ dotnet_diagnostic.SA1502.severity = none
 # which conflicts with SA1309's default; re-enable it against that prefix instead.
 dotnet_diagnostic.SA1309.severity = none
 
-[Migrations/**.cs]
+[**/Migrations/**.cs]
 generated_code = true
 
 [tests/**.cs]

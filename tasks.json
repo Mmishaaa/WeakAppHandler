@@ -259,7 +259,7 @@
         "Шаг 3: SELECT * FROM metrics — убедиться в наличии всех пяти seed-строк"
       ],
       "dependencies": ["TASK-003"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-014",
