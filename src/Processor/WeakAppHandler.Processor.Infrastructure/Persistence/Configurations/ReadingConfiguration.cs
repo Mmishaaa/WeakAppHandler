@@ -18,6 +18,7 @@ public sealed class ReadingConfiguration : IEntityTypeConfiguration<Reading>
 
         builder.HasOne<Meter>().WithMany().HasForeignKey(r => r.MeterId).IsRequired();
         builder.HasOne<Metric>().WithMany().HasForeignKey(r => r.MetricCode).IsRequired();
+        builder.HasOne<IngestBatch>().WithMany().HasForeignKey(r => r.BatchId).IsRequired();
 
         builder.HasIndex(r => new { r.MeterId, r.MetricCode, r.ObservedAt })
             .IsDescending(false, false, true)

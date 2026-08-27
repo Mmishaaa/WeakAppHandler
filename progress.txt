@@ -755,3 +755,114 @@ this task's manual docker-run-and-inspect approach was explicitly a stand-in for
 schema) and TASK-006 (base docker-compose) remain unblocked and independent if a future session
 prefers a different branch — TASK-006 in particular now also unblocks TASK-012 (RabbitMQ topology),
 which is the other prerequisite TASK-016 (Ingestor polling loop) still needs.
+
+[2026-08-27] TASK-014 - DONE. Picked this over TASK-008 (Auth DB schema, also unblocked and
+critical) because it was explicitly flagged as the natural next step by the prior entry and is the
+deeper bottleneck: TASK-018/019/020 (Processor consumer chain) and every later M2-M4 integration
+test need both the pipeline tables and a reusable container harness that this task's own
+description calls for by name.
+
+Schema (Domain + Infrastructure, `src/Processor/WeakAppHandler.Processor.Domain` /
+`.Infrastructure`):
+  - `IngestBatchOutcome` enum (success/http_error/timeout/corrupted/rate_limited/unauthorized) —
+    a Domain-local mirror of `Contracts.IngestOutcome`, not a reference to it: Domain has zero
+    references by design (established in TASK-013), and Contracts is a message-contract project,
+    not something Domain should depend on. The Contracts->Domain mapping is TASK-018's job (the
+    consumer), not this task's.
+  - `IngestBatch` (maps to `ingest_batches`), `ProcessedMessage` (maps to `processed_messages`),
+    `ReadingHourly` (maps to `readings_hourly`) — plain POCOs matching the existing Meter/Metric/
+    Reading style (required init-only properties, no behavior).
+  - `ReadingHourly` is deliberately just a target table per this task's own description ("таргет
+    для будущего rollup") — TASK-048 owns writing to it. Columns: (meter_id, metric_code,
+    bucket_start) unique + FK'd to meters/metrics, plus value_avg/min/max/sum (nullable
+    numeric(12,4)) and reading_count — enough to serve both numeric metrics (avg/min/max/sum) and
+    boolean motion counts (reading_count as the "how many events this hour" figure) without
+    guessing at TASK-048's/TASK-024's exact aggregation SQL yet.
+  - Closed a gap TASK-013 left explicitly open: `Reading.BatchId` had a code comment saying "no FK
+    yet, ingest_batches doesn't exist" — removed the comment and added the real
+    `HasOne<IngestBatch>().WithMany().HasForeignKey(r => r.BatchId).IsRequired()` now that the
+    table exists.
+  - New EF Core migration `PipelineSchema` (via `dotnet ef migrations add ... --startup-project
+    src/Processor/WeakAppHandler.Processor.Worker`, same pattern as TASK-013) — creates all three
+    tables plus the readings->ingest_batches FK and the readings_hourly unique index, verified by
+    reading the generated migration file rather than just trusting `dotnet ef` succeeded.
+
+Shared Testcontainers harness (`tests/Shared/WeakAppHandler.IntegrationTesting`, new class
+library, added to `WeakAppHandler.sln` under a `tests/Shared` solution folder and to
+`processor.slnf`):
+  - `PostgresIntegrationFixture` / `RabbitMqIntegrationFixture` (each `IAsyncLifetime`, wrapping
+    `Testcontainers.PostgreSql`/`Testcontainers.RabbitMq` 4.14.0 — versions looked up via `dotnet
+    package search` rather than guessed) — thin wrappers exposing just `ConnectionString`.
+  - `IntegrationTestFixture` composes both and starts them via `Task.WhenAll` (concurrently, not
+    sequentially) specifically to avoid doubling fixture setup time for every test class that needs
+    both containers.
+  - Deliberately does NOT reference the Processor schema or any specific DbContext — the harness
+    stays schema-agnostic so Gateway/Notification (M3/M4) can reuse the exact same two fixture
+    classes against their own DbContexts without the harness knowing anything Processor-specific.
+  - REAL CONSTRAINT DISCOVERED (not a design choice, an xUnit limitation): a `[CollectionDefinition]`
+    must live in the same test assembly as the tests using it (xUnit analyzer rule xUnit1041) — so
+    the harness can only ship the fixture classes themselves; each consuming test *project* must
+    declare its own 5-line `[CollectionDefinition("Integration")] : ICollectionFixture<
+    IntegrationTestFixture>` pointing at the shared fixture. This is NOT code duplication of the
+    container logic (that stays in one place), just an unavoidable per-assembly registration xUnit
+    requires. Worth remembering for TASK-018's/Gateway's/Notification's own integration test
+    projects: copy the trivial `IntegrationCollectionDefinition.cs` pattern, not the fixture logic.
+  - Had to add `<IsTestProject>false</IsTestProject>` to the harness's own .csproj: without it,
+    `dotnet test WeakAppHandler.sln` tried to discover/run tests *inside* the harness assembly
+    itself (it references the `xunit` package for `IAsyncLifetime`/`ICollectionFixture`, which was
+    apparently enough for VSTest to treat it as a test project) and failed with a missing
+    `BouncyCastle.Cryptography` runtime dependency (the harness has no `Microsoft.NET.Test.Sdk`/
+    `xunit.runner.visualstudio`, so it can't actually host a test run). This would have silently
+    broken `dotnet test WeakAppHandler.sln` — worth watching for the same failure mode if a future
+    shared (non-test-runner) library ever references xunit types again.
+  - Two Testcontainers API breaks vs. what I first wrote from memory, both real (not
+    hypothetical) — the parameterless `PostgreSqlBuilder()`/`RabbitMqBuilder()` constructors are
+    obsolete/removed in 4.14.0; fixed by using `new PostgreSqlBuilder("postgres:17-alpine")`/
+    `new RabbitMqBuilder("rabbitmq:3-management-alpine")` instead of `.WithImage(...)`.
+  - CA1711 fired on a type named `IntegrationTestCollection` (reserved "Collection" suffix implies
+    `ICollection<T>`) — renamed to `IntegrationCollectionDefinition` throughout.
+
+Example consumer test project demonstrating the harness (`tests/WeakAppHandler.Processor.
+Infrastructure.Tests`, new, added to `WeakAppHandler.sln` and `processor.slnf`):
+  `CoreDbContextTests` (`[Collection("Integration")]`, real containers, no mocking) — three tests:
+  1. Runs `context.Database.MigrateAsync()` against the real Postgres container from a cold
+     database (all migrations from TASK-013+this task, applied for real) and confirms the 5 seeded
+     metric rows exist — proves migrations are reproducible outside the manual `docker run` +
+     `psql` verification TASK-013 used as a stand-in.
+  2. Full pipeline-schema round trip: inserts a Meter, IngestBatch, Reading (referencing the new
+     FK), ProcessedMessage, and ReadingHourly bucket in one `SaveChangesAsync`, then re-reads each
+     back with `AsNoTracking()` to prove persistence, not just in-memory state. Hit one real,
+     non-obvious assertion bug here: `Assert.Equal(processedMessage.ProcessedAt,
+     reloadedMessage.ProcessedAt)` failed by 7 ticks — Postgres `timestamptz` has microsecond
+     precision, .NET `DateTimeOffset` ticks are 100ns, so a value written with
+     `DateTimeOffset.UtcNow`'s full precision loses its last decimal digit on round trip through a
+     real database. Not a bug in the schema/mapping — fixed the assertion to use
+     `Assert.Equal(expected, actual, TimeSpan.FromMilliseconds(1))` instead of exact equality; any
+     future test asserting a round-tripped Postgres timestamp should do the same rather than
+     comparing DateTimeOffset values for exact equality.
+  3. A one-line smoke test asserting `fixture.RabbitMq.ConnectionString` is non-empty — proves the
+     RabbitMQ container actually started and became reachable (Testcontainers only returns a
+     connection string once the container is healthy), without pretending to exercise messaging
+     functionality that doesn't exist yet (TASK-012 owns the actual exchange/queue/DLQ topology).
+
+Verified with REAL containers (`docker info` confirmed daemon reachable, same as every prior
+session): `dotnet test tests/WeakAppHandler.Processor.Infrastructure.Tests/...` with detailed
+logging showed genuine `testcontainers.org` log lines — containers created, started, health-checked
+(`pg_isready` for Postgres), and deleted after the run, twice in a row (once to catch the precision
+assertion bug, once clean) — 3/3 passed both times, ~15s total including full container
+create+destroy. `dotnet test WeakAppHandler.sln` -> 21/21 passed across all four test projects
+(7 Contracts + 8 ServiceDefaults + 3 Ingestor + 3 new Processor.Infrastructure — the harness project
+itself correctly produces zero discovered tests now that `IsTestProject=false` is set).
+`dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across 21 projects.
+Rebuilt all five service `.slnf` files individually post-change -> all still 0 warnings/0 errors.
+Not a frontend change, so `npm` checks don't apply.
+  - tasks.json: TASK-014 status -> "done".
+
+NEXT: TASK-018 (Processor consumer: idempotent ReadingsIngested/IngestAttemptRecorded handling via
+processed_messages, ingest_batches writes including reading_count=0 for failures, all in one
+transaction) is now unblocked (needs TASK-014 done + TASK-016 done — TASK-016, the Ingestor polling
+loop, is NOT done yet, so TASK-018 is not actually startable next). TASK-008 (Auth DB schema) and
+TASK-006 (base docker-compose) remain the other ready critical/high tasks with no further
+prerequisites — TASK-006 is worth prioritizing soon since it also unblocks TASK-012 (RabbitMQ
+topology), which TASK-016 (Ingestor polling loop) needs before it can be picked up, and TASK-016 is
+now the most direct remaining blocker on the Processor consumer chain this task just unblocked.
