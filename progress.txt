@@ -662,3 +662,96 @@ now unblocked — it is the direct, natural next step, since `WeakAppFetchResult
 already points at it, and `Worker.cs` is still just a placeholder delay loop with `AddWeakAppClient`
 registered but never actually called. TASK-006/008/013 remain unblocked and independent if a future
 session prefers a different critical-path branch.
+
+[2026-08-27] TASK-013 - DONE. Picked this over the other two ready critical tasks (TASK-008 Auth
+DB schema, TASK-006 base docker-compose, which is only "high" priority) because it's the deeper
+critical-path bottleneck: TASK-014 (pipeline schema + Testcontainers harness), TASK-018/019/020
+(Processor consumer chain), and TASK-023 (Gateway GraphQL reads) all sit directly behind it, while
+Auth's consumers (TASK-009/010) are self-contained security work that dev-bypass already lets the
+rest of the system route around for now.
+
+Implemented the Core schema (meters, metrics, readings, meter_current_state only — ingest_batches/
+processed_messages/readings_hourly are explicitly TASK-014's job per this task's own description,
+not this one's):
+  - `WeakAppHandler.Processor.Domain`: four plain POCO entities (`Meter`, `Metric`, `Reading`,
+    `MeterCurrentState`) plus `MetricValueKind` enum — no EF/package references, matching Clean
+    Architecture's Domain-has-no-infra-dependency rule already established by the project skeleton.
+    `Reading.BatchId` is a bare `Guid` with a code comment (not a navigation/FK) explaining it will
+    point at `ingest_batches.id` once TASK-014 creates that table — no FK constraint exists yet
+    because the referenced table doesn't exist in this migration.
+  - `WeakAppHandler.Processor.Infrastructure/Persistence/`: `CoreDbContext` (`ApplyConfigurationsFromAssembly`)
+    + one `IEntityTypeConfiguration<T>` per entity under `Persistence/Configurations/`. Used
+    `EFCore.NamingConventions`' `UseSnakeCaseNamingConvention()` instead of hand-writing
+    `HasColumnName` on every property — tables still need explicit `ToTable("meter_current_state")`
+    etc. because the convention only lowercases/snake-cases whatever name it's given, it doesn't
+    singularize/pluralize DbSet property names to match PRD's exact table names.
+  - Seed data: `MetricSeedData.All` (the five metrics from PRD §7.1: energy/co2/pm25/humidity/
+    motion_detected with meter_type/unit/value_kind/display_name) wired via `HasData` in
+    `MetricConfiguration`, so it's baked into the migration itself (`InsertData`) rather than
+    requiring a separate seeding step at startup.
+  - Indexes: composite `(meter_id, metric_code, observed_at DESC)` via `HasIndex(...).IsDescending(false,
+    false, true)`, BRIN on `observed_at` via `HasIndex(...).HasMethod("brin")`, and the unique
+    `(location, meter_type)` constraint on `meters`. `readings.Id` uses `UseIdentityByDefaultColumn()`
+    (Npgsql's modern equivalent of `bigserial` — allows explicit ID insertion, matching bigserial's
+    semantics, unlike `UseIdentityAlwaysColumn()` which would reject it).
+  - `ProcessorInfrastructureServiceCollectionExtensions.AddProcessorInfrastructure(services, config)`:
+    reads `ConnectionStrings:Processor` (throws on startup if missing — a Processor with no DB
+    connection string is a misconfiguration, not something to silently limp along without), registers
+    `CoreDbContext` and an EF Core `AddDbContextCheck<CoreDbContext>(tags: ["ready"])` health check —
+    ServiceDefaults' `/health/ready` (TASK-003) picks this up automatically since health check
+    registration is additive. Wired into `Processor.Worker/Program.cs` right after
+    `AddServiceDefaults()`. Added `ConnectionStrings:Processor` to `appsettings.json` with a
+    reasonable local-dev default (`Host=localhost;Port=5432;Database=weakapphandler;
+    Username=processor;Password=processor_password`) — TASK-006/047 (docker-compose) will need to
+    match this or override it via `ConnectionStrings__Processor` env var; TASK-043's least-privilege
+    Postgres roles will eventually replace this placeholder single `processor` user with a properly
+    scoped one.
+  - Migration `InitialCore` generated via `dotnet ef migrations add` (had to `dotnet tool update -g
+    dotnet-ef --version 10.0.11` first — the machine's global tool was still 9.0.10, mismatched
+    against this repo's EF Core 10 packages). Needed `Microsoft.EntityFrameworkCore.Design` referenced
+    by *both* Infrastructure (owns the DbContext) and Worker (the `--startup-project`) — the CLI
+    resolves the Design package from the startup project specifically, `PrivateAssets=all` on
+    Infrastructure's reference doesn't flow transitively to Worker.
+
+REAL BUG FOUND AND FIXED (not just this task's own code): the very first EF migration ever generated
+in this repo immediately failed `dotnet build` with 10 errors (IDE0161 namespace style, SA1413
+trailing commas, CA1861 constant-array-as-argument) even though `.editorconfig` already had a
+`[Migrations/**.cs] generated_code = true` rule from TASK-001, seemingly written for exactly this
+purpose but never actually exercised end-to-end until now. Root cause: editorconfig glob sections
+with a path separator are anchored to the directory containing the `.editorconfig` file and are NOT
+implicitly prefixed with `**/` — `Migrations/**.cs` only matches a top-level `Migrations/` folder at
+repo root, never `src/Processor/.../Persistence/Migrations/*.cs` at any nested depth. Fixed by
+changing the glob to `[**/Migrations/**.cs]`, confirmed this repo-root `.editorconfig` change doesn't
+break any other service's build (rebuilt all five `.slnf` files individually after the fix). Any
+future service that adds its own EF Core migrations (Auth in TASK-008/009, Notification in TASK-027)
+would have hit this exact same wall — worth remembering this was a latent, previously-untested bug
+in M1's own tooling, not something specific to Processor.
+
+Verification (no Testcontainers harness exists yet — that's TASK-014 — so used the same
+"docker run a throwaway container, apply, inspect, tear down" pattern as TASK-004/005): started
+`postgres:17-alpine` on a scratch port (18080 was in use by nothing relevant; used 15432), ran
+`dotnet ef database update` against it with an explicit `--connection` override, then used
+`docker exec ... psql` to inspect structure directly:
+  - `\d readings` confirmed the composite btree index with `observed_at DESC`, the BRIN index on
+    `observed_at`, and both FKs (to `meters`/`metrics`).
+  - `\d meters` confirmed the unique `(location, meter_type)` index.
+  - `SELECT * FROM metrics` confirmed all five seed rows with correct meter_type/unit/value_kind/
+    display_name.
+  - `\d meter_current_state` confirmed the composite PK `(meter_id, metric_code)` and both FKs.
+  Removed the throwaway container afterward (`docker rm -f`).
+
+`dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across all 17 projects
+(16 previous + the new migration files, no new test project added since this task has no business
+logic to unit test yet — just schema). `dotnet test WeakAppHandler.sln` -> 18/18 passed (7 Contracts
++ 3 Ingestor + 8 ServiceDefaults — none of these touch Processor, confirming nothing broke). Rebuilt
+all five `.slnf` files individually post-editorconfig-fix -> all still 0 warnings/0 errors. Not a
+frontend change, so `npm` checks don't apply.
+  - tasks.json: TASK-013 status -> "done".
+
+NEXT: TASK-014 (Processor pipeline schema — ingest_batches/processed_messages/readings_hourly — plus
+the shared Testcontainers harness `tests/Shared/WeakAppHandler.IntegrationTesting` reused through
+M2-M4) is now unblocked and is the natural next step: it needs a real Postgres+RabbitMQ harness that
+this task's manual docker-run-and-inspect approach was explicitly a stand-in for. TASK-008 (Auth DB
+schema) and TASK-006 (base docker-compose) remain unblocked and independent if a future session
+prefers a different branch — TASK-006 in particular now also unblocks TASK-012 (RabbitMQ topology),
+which is the other prerequisite TASK-016 (Ingestor polling loop) still needs.

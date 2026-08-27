@@ -10,4 +10,13 @@
     <ProjectReference Include="..\..\SharedKernel\WeakAppHandler.SharedKernel\WeakAppHandler.SharedKernel.csproj" />
     <ProjectReference Include="..\..\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Required by `dotnet ef migrations` tooling, which resolves the Design package from the
+         startup project rather than the project that owns the DbContext. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
 </Project>
