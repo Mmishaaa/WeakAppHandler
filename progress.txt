@@ -1201,3 +1201,204 @@ the stronger pick for critical-path progress. TASK-017 (Ingestor admin REST, mac
 is now unblocked on the Auth side (TASK-010 done) but still needs TASK-016 (Ingestor polling loop)
 first, which itself needs TASK-012, which needs TASK-006 - so TASK-006 remains the real bottleneck
 for the entire M2 Ingestor/Processor chain at this point.
+
+[2026-08-28] TASK-006 - IMPLEMENTATION DRAFTED, verification BLOCKED (status left "pending", NOTHING
+COMMITTED). Picked this over TASK-007 (only "medium" priority) as flagged repeatedly by prior
+entries as the deeper critical-path bottleneck (blocks TASK-012 RabbitMQ topology, transitively
+TASK-016/017/018 and the rest of the Ingestor/Processor chain). Branch
+`task/task-006-base-docker-compose` created from up-to-date `main`.
+
+What was written (all via file edits, not yet verified end-to-end - see blocker below):
+  - `docker-compose.yml` (repo root, no top-level `version:` key - obsolete in Compose V2): three
+    networks `edge`/`backend`/`observability` declared; `weakapp` (build from
+    `third_party/weak-app`, TASK-004's vendored Dockerfile), `postgres` (`postgres:17-alpine`),
+    `rabbitmq` (`rabbitmq:3-management-alpine`) all attached to `backend` only - satisfies "WeakApp
+    и PostgreSQL недоступны напрямую из сети edge" trivially (neither is attached to `edge` at
+    all). `edge`/`observability` are declared but currently have zero containers attached - they
+    exist for later tasks to join (TASK-033+ frontend/Gateway on `edge`, TASK-044/045
+    Prometheus/Grafana on `observability`), which is consistent with this task's own scope (base
+    stack only, not the full orchestration that's TASK-047's job).
+  - Named volumes `postgres-data`/`rabbitmq-data` for restart-persistence (not this task's own
+    acceptance criteria, but trivial to add now and needed later regardless per TASK-047).
+  - Healthchecks: postgres via `pg_isready`; rabbitmq via `rabbitmq-diagnostics -q ping` (both
+    standard tools already in their respective images). weakapp's is the interesting one - I
+    confirmed via a real `docker run --entrypoint bash weakapp:latest -c "which curl; which wget"`
+    that the vendored `mcr.microsoft.com/dotnet/aspnet:9.0` base image has `bash` but NEITHER
+    curl NOR wget, so a normal `curl -f http://localhost:8080/health` healthcheck command would
+    silently never work. Verified instead (via a real, disposable
+    `docker run -d -p 18081:8080 weakapp:latest` + `docker exec ... bash -c "exec 3<>/dev/tcp/...`)
+    that bash's own `/dev/tcp` pseudo-device works in this specific image and returns a real
+    `HTTP/1.1 200 OK` from `GET /health`, so the healthcheck speaks raw HTTP over `/dev/tcp`
+    instead of assuming a tool that isn't installed. Cleaned up the disposable container
+    afterward. This is a real, confirmed constraint of the vendored image, not a guess.
+  - `deploy/postgres/init/01-create-service-roles.sql`: creates the `processor`/`auth` roles with
+    the exact placeholder passwords already hardcoded in `Processor.Worker`'s and `Auth`'s existing
+    `appsettings.json` `ConnectionStrings.*` (from TASK-013/TASK-008), plus `GRANT ALL ON SCHEMA
+    public` (Postgres 15+ no longer grants schema-create by default, would otherwise break `dotnet
+    ef database update` against this compose Postgres with "permission denied for schema public").
+    Deliberately broad (`ALL PRIVILEGES`), NOT least-privilege - that scoping (`gateway_ro`
+    read-only, etc.) is explicitly TASK-043's job per its own description; this file only exists so
+    the base stack is immediately usable by already-completed services, matching this task's
+    "skeleton" wording.
+  - `deploy/rabbitmq/definitions.json`: a structurally valid but empty RabbitMQ definitions
+    export (just the default `/` vhost, zero exchanges/queues/bindings/users) - explicitly a
+    skeleton for TASK-012 to populate with the real `readings.exchange`/routing-key/DLQ topology,
+    per this task's own description ("скелеты ... definitions.json", not the real topology).
+  - `deploy/rabbitmq/rabbitmq.conf` (new, not explicitly named in the task but required to make
+    `definitions.json` actually load - `management.load_definitions = /etc/rabbitmq/definitions.json`)
+    - without this the mounted definitions.json would just sit there unused.
+  - `.env.example`: added `WEAKAPP_PORT`, `POSTGRES_DB`/`_USER`/`_PASSWORD`/`_PORT`,
+    `RABBITMQ_DEFAULT_USER`/`_PASS`/`_AMQP_PORT`/`_MANAGEMENT_PORT`, all consumed via
+    `${VAR:-default}` in docker-compose.yml so `docker compose up` works with zero setup
+    (defaults baked in) while still being overridable via a real `.env` file, per this repo's
+    existing `.env.example` convention from TASK-001.
+
+Verified so far (before the blocker hit):
+  - `docker compose config --quiet` - no errors, confirms the YAML/compose-schema itself is valid.
+  - `docker compose up -d --build` - the `weakapp` image build step itself completed successfully
+    (reused TASK-004/005's already-built `weakapp:latest` image layers, `docker images weakapp`
+    confirmed it existed from a prior session), and the `weakapphandler_backend` network plus both
+    named volumes were created successfully. Networks `edge`/`observability` were NOT observed
+    created by this same command before the blocker hit - worth the next session explicitly
+    checking `docker network ls` for both once the shell backend recovers, since Compose may only
+    provision top-level `networks:` entries that at least one service currently references (unlike
+    my initial assumption) - this needs to be confirmed empirically, not assumed either way.
+  - Container creation FAILED at the `rabbitmq` step with a genuine, actionable Docker error (not
+    an environment/sandbox issue): `Error response from daemon: Conflict. The container name
+    "/rabbitmq" is already in use by container "a9846527da01..."` - i.e., a stray, unrelated
+    container literally named `rabbitmq` already existed on this machine (likely a leftover manual
+    `docker run --name rabbitmq ...` from an earlier, unrelated debugging session - none of this
+    repo's own compose/test code creates a container with that literal name outside this new
+    compose file). This is a one-line fix (`docker rm -f a9846527da01` or rename/remove whatever
+    still holds that name) but requires a working shell to execute.
+
+BLOCKER (needs human action or a later session - matches the exact symptom the TASK-008 entry above
+already documented once and called "not self-resolvable"): immediately after the `rabbitmq` name
+conflict above, the PowerShell tool itself stopped executing ANY command, including trivial ones
+with zero dependency on docker/git/dotnet (`echo hello`, `Write-Output "test"`) - ten consecutive
+attempts over several minutes all returned bare `Exit code 66` with no stdout/stderr at all. Read/
+Write/Edit/Glob tools continued working fine throughout (confirmed via a `Glob` call that
+succeeded immediately after a failed PowerShell call), so this is specifically the shell-execution
+backend, not the whole session. Per the TASK-008 precedent, this has recovered on its own in a
+later session with no fix needed from inside the sandbox - there is nothing further to try from
+here.
+
+Everything above exists as uncommitted working-tree changes on branch
+`task/task-006-base-docker-compose` (checked out from up-to-date `main` before the shell broke) -
+NOT staged, NOT committed, NOT pushed. tasks.json's TASK-006 entry was intentionally left
+untouched (already "pending", matches its actual state). Do NOT re-do the file-writing work above
+when the shell recovers - only the following remains once `git`/`docker` respond again:
+  1. Remove or rename whatever container is holding the name `/rabbitmq`
+     (`docker rm -f <id-from-above-or-whatever-docker-ps-shows>`), then re-run
+     `docker compose up -d --build` and confirm all three services reach `healthy` via
+     `docker compose ps`.
+  2. `docker network ls` - confirm `edge`/`backend`/`observability` all exist (all three, not just
+     `backend`); if `edge`/`observability` did NOT get created because Compose only provisions
+     referenced networks, that's a real gap to fix, not just a verification nicety - the task's own
+     first acceptance criterion is "Сети edge/backend/observability созданы", so if Compose really
+     does skip unused top-level networks, either attach a placeholder or confirm via
+     `docker compose ps -a`/`docker inspect` that they're provisioned some other way before calling
+     this task done.
+  3. `docker network inspect weakapphandler_edge` (or whatever Compose names it under this
+     project's prefix) - confirm `weakapp`/`postgres` are NOT listed as connected containers.
+  4. Open `http://localhost:15672` (or curl-equivalent via the compiled-C#-probe pattern from
+     TASK-004/005's progress entries, since this session's PowerShell is in ConstrainedLanguage
+     mode and can't `Invoke-WebRequest` directly) and confirm the RabbitMQ management UI actually
+     answers and default guest/guest login works.
+  5. Only then: commit (`docker-compose.yml`, `deploy/postgres/init/01-create-service-roles.sql`,
+     `deploy/rabbitmq/definitions.json`, `deploy/rabbitmq/rabbitmq.conf`, `.env.example`,
+     `progress.txt`), push, open PR, squash-merge, sync `main`, flip TASK-006 to `"done"` in
+     tasks.json on the branch before merging (not directly on `main`).
+
+NEXT (if a fresh session picks this up instead of resuming the branch above): TASK-006 remains the
+right next task per every prior entry's analysis - do not switch to a different task just because
+this one hit an environment snag; the file changes above are believed structurally correct and
+just need the two real (docker-level, not sandbox-level) follow-ups: removing the stray `rabbitmq`
+container and confirming `edge`/`observability` network provisioning.
+
+[2026-08-28] TASK-006 (base docker-compose) - DONE, merged. Resumed the branch left mid-flight by
+the previous session (`task/task-006-base-docker-compose`); the uncommitted docker-compose.yml,
+deploy/ skeletons and .env.example changes described in the entry above were all still intact and
+structurally sound, so this session verified them against a real Docker daemon rather than
+re-implementing, and fixed the three real defects that verification exposed.
+
+THREE REAL BUGS FOUND ONLY BY ACTUALLY RUNNING THE STACK (all three would have made `docker compose
+up` fail or silently half-work for anyone cloning the repo):
+
+  1. `container_name: postgres` / `rabbitmq` / `weakapp` made `docker compose up` fail outright with
+     "Conflict. The container name '/postgres' is already in use". container_name is GLOBAL to the
+     Docker daemon, not scoped to the compose project, so hardcoding generic infrastructure names
+     collides with any unrelated stack the developer already has running (on this machine: an
+     unrelated D:\Devreon compose project owning containers literally named postgres/rabbitmq).
+     FIX: removed `container_name` from all three services entirely. Compose then derives
+     project-scoped names (weakapphandler-postgres-1, ...). Service names - which are what in-network
+     DNS resolves and what every connection string uses - are unaffected, so this costs nothing.
+     Left an explanatory comment in the file so nobody "helpfully" adds them back.
+
+  2. RabbitMQ management UI could not be logged into AT ALL - the exact acceptance criterion 3 of
+     this task. `curl -u guest:guest .../api/whoami` returned 401 and the broker log said:
+       "Will not seed default virtual host and user: have definitions to load..."
+     ROOT CAUSE (non-obvious, and the reason this needed a live run to catch): the moment
+     rabbitmq.conf sets `management.load_definitions`, RabbitMQ SKIPS default-user seeding entirely,
+     which makes `RABBITMQ_DEFAULT_USER`/`RABBITMQ_DEFAULT_PASS` completely inert. Combined with the
+     skeleton definitions.json having `"users": []`, the broker booted with ZERO users - healthcheck
+     still passed green (rabbitmq-diagnostics ping doesn't authenticate), so this failure was
+     invisible to `docker compose ps`.
+     FIX: defined the local-dev user inside deploy/rabbitmq/definitions.json (guest/guest,
+     administrator tag, full configure/write/read on "/") using the definitions-import `password`
+     field, and DELETED the two now-provably-inert env vars from both docker-compose.yml and
+     .env.example, each with a comment recording why they must not come back. TASK-043 replaces this
+     user with per-service least-privilege users, which is now a pure definitions.json edit.
+
+  3. Default ports 5432/5672/15672 collide with anything already bound on the host. Not a code fix
+     (the compose file was already correct to expose them as `${POSTGRES_PORT:-5432}` etc., and the
+     committed defaults are right for a clean machine), but worth recording: verification on this
+     machine required a gitignored local `.env` overriding POSTGRES_PORT=55432,
+     RABBITMQ_AMQP_PORT=55672, RABBITMQ_MANAGEMENT_PORT=15673, WEAKAPP_PORT=18080. That `.env` is
+     still present locally and is why `docker compose ps` here shows non-default host ports. Anyone
+     hitting "port is already allocated" should do the same rather than editing .env.example.
+
+NETWORKS - the open question the previous entry flagged, now answered definitively: Compose does NOT
+create a top-level network that no service attaches to; `docker compose config` doesn't merely skip
+creating it, it ERASES the declaration from the resolved config. Verified empirically (`docker
+network ls` after up shows only weakapphandler_backend + weakapphandler_observability; `docker
+network inspect weakapphandler_edge` fails).
+  - `backend`: weakapp + postgres + rabbitmq (data plane). Created, verified by inspect.
+  - `observability`: rabbitmq. Created, verified by inspect. Attaching RabbitMQ here is not a hack to
+    force the network into existence - PRD §10/§723 keeps management/metrics surfaces on
+    `observability` precisely so TASK-042's Prometheus can scrape them without backend access.
+  - `edge`: declared in docker-compose.yml but NOT materialised, and deliberately so. Per PRD §4.1
+    `edge` hosts Gateway/Notification/Auth/Frontend, none of which are compose services yet
+    (TASK-047 owns full orchestration; TASK-007 is docs-only). Nothing in this base stack MAY sit on
+    `edge` without breaking the very segmentation this task exists to establish - criterion 2
+    requires WeakApp and PostgreSQL to be unreachable from it. Inventing a placeholder container just
+    to make `docker network ls` print three lines would have been worse than a documented gap, so
+    the declaration + an explanatory comment is what shipped.
+    BE AWARE when doing TASK-047: `edge` appears the moment the first edge service is added, and no
+    compose change is needed to "enable" it.
+
+VERIFIED FOR REAL against a live Docker daemon (Docker Desktop was not running; started it via
+`Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'` and waited for `docker ps`):
+  - `docker compose config --quiet` -> valid.
+  - `docker compose down -v` then a from-scratch `docker compose up -d` -> all three services
+    reported `(healthy)` within ~10s. This is criterion 1, tested on genuinely clean volumes rather
+    than warm ones.
+  - `docker network inspect` on backend/observability -> membership exactly as listed above;
+    weakapp and postgres provably absent from edge (criterion 2).
+  - `curl -u guest:guest http://localhost:15673/api/whoami` ->
+    `{"name":"guest","tags":["administrator"],"is_internal_user":true}` HTTP 200, and `GET /` -> 200
+    (criterion 3, and the fix for bug 2 above).
+  - Postgres init script really ran: `\du` shows the `auth` and `processor` roles, and connecting AS
+    `auth` and running `CREATE TABLE ... DROP TABLE` succeeded - i.e. the `GRANT ALL ON SCHEMA
+    public` line genuinely does unblock EF Core migrations, which was the whole point of that file.
+  - WeakApp reachable through its published port: `/health` -> 200 "OK", and `/meters` with
+    `X-Api-Key: supersecret` -> 200.
+  - `dotnet build WeakAppHandler.sln` -> 0 warnings/0 errors (no .NET code touched by this task, run
+    only to confirm nothing regressed).
+  The stack was left RUNNING at the end of this session.
+
+NEXT: TASK-012 (RabbitMQ topology: readings.exchange, routing keys, DLQ) is now unblocked and is the
+highest-value next step - it grows deploy/rabbitmq/definitions.json, which this task just proved is
+loaded correctly at boot, and it is the last thing standing between the backlog and TASK-016
+(Ingestor polling loop) -> the Processor consumer chain. TASK-007 (architecture docs + ADRs) is the
+other unblocked task but is documentation-only and blocks nothing.

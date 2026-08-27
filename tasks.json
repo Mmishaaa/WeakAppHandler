@@ -133,7 +133,7 @@
         "Шаг 3: Открыть RabbitMQ management UI в браузере, залогиниться"
       ],
       "dependencies": ["TASK-004"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-007",

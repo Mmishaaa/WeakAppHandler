@@ -1,0 +1,99 @@
+networks:
+  # PRD §4.1/§10 segmentation. NOTE a documented Compose behaviour that matters here: a network
+  # declared at this top level is only actually created once some service attaches to it, so
+  # `edge` stays declared-but-uncreated until the services PRD §4.1 places on it (Gateway,
+  # Notification, Auth, Frontend) join the stack in TASK-047. That is deliberate rather than an
+  # oversight: nothing in this base stack may sit on `edge` without breaking the segmentation
+  # this task exists to establish (WeakApp and PostgreSQL must not be reachable from it).
+  edge:
+  backend:
+  observability:
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+
+services:
+  # Deliberately no `container_name:` on any service. A fixed container_name is global to the
+  # Docker daemon, so hardcoding "postgres"/"rabbitmq" makes `docker compose up` fail outright
+  # ("container name is already in use") on any machine already running an unrelated container
+  # by that name -- which is the common case for generic infrastructure names. Letting compose
+  # derive names from COMPOSE_PROJECT_NAME (weakapphandler-postgres-1, ...) keeps this stack
+  # isolated from whatever else the developer has running. Service names, which are what the
+  # in-network DNS resolves and what every connection string below uses, are unaffected.
+  weakapp:
+    build:
+      context: ./third_party/weak-app
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${WEAKAPP_PORT:-8080}:8080"
+    healthcheck:
+      # The mcr.microsoft.com/dotnet/aspnet base image has bash but no curl/wget, so the
+      # healthcheck speaks raw HTTP over bash's /dev/tcp instead of shelling out to a tool
+      # that isn't installed in the image.
+      test:
+        - "CMD-SHELL"
+        - >-
+          bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 &&
+          head -n 1 <&3 | grep -q "200"'
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-weakapphandler}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-weakapphandler}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  rabbitmq:
+    # Pinned to the same major as the Testcontainers harness
+    # (tests/Shared/WeakAppHandler.IntegrationTesting/RabbitMqIntegrationFixture.cs) so the topology
+    # TASK-012 grows in deploy/rabbitmq/definitions.json behaves identically in tests and in compose.
+    # Note `management.load_definitions` in rabbitmq.conf is 3.x-only; bumping to 4.x requires
+    # switching that to `definitions.local.path`.
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    networks:
+      # AMQP is data-plane traffic (backend); the management UI/metrics surface is the ops plane,
+      # which PRD §10 keeps on `observability` so Prometheus can scrape it in TASK-042 without
+      # being granted backend access.
+      - backend
+      - observability
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    # No RABBITMQ_DEFAULT_USER/PASS here: they are inert once rabbitmq.conf sets
+    # `management.load_definitions` (RabbitMQ then logs "Will not seed default virtual host and
+    # user: have definitions to load..." and skips default-user creation), which silently leaves
+    # the broker with no users at all and makes the management UI impossible to log into. The
+    # local-dev user is defined in deploy/rabbitmq/definitions.json instead.
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./deploy/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
