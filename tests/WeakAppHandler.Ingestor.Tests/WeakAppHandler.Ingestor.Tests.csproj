@@ -17,7 +17,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- IHostApplicationBuilder, which AddServiceMassTransit and AddIngestionPolling extend. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Ingestor\WeakAppHandler.Ingestor\WeakAppHandler.Ingestor.csproj" />
+    <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 
 </Project>
