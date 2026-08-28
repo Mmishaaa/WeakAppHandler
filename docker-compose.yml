@@ -67,8 +67,12 @@ services:
 
   rabbitmq:
     # Pinned to the same major as the Testcontainers harness
-    # (tests/Shared/WeakAppHandler.IntegrationTesting/RabbitMqIntegrationFixture.cs) so the topology
-    # TASK-012 grows in deploy/rabbitmq/definitions.json behaves identically in tests and in compose.
+    # (tests/Shared/WeakAppHandler.IntegrationTesting/RabbitMqIntegrationFixture.cs) so the broker
+    # behaves identically in tests and in compose. The ingestion topology (readings.exchange, its
+    # routing keys and durable queues) is deliberately NOT in definitions.json: MassTransit declares
+    # it at startup and is the single source of truth, because declaring the same entity in both
+    # places only works while every property matches and a drift surfaces as a PRECONDITION_FAILED
+    # that takes the bus down. See src/ServiceDefaults/.../Messaging/ReadingsTopologyExtensions.cs.
     # Note `management.load_definitions` in rabbitmq.conf is 3.x-only; bumping to 4.x requires
     # switching that to `definitions.local.path`.
     image: rabbitmq:3-management-alpine

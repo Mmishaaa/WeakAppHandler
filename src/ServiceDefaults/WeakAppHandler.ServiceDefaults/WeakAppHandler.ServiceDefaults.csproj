@@ -23,6 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The RabbitMQ topology binds message types to exchanges/routing keys by name, so the
+         shared defaults need the contracts. Contracts itself stays reference-free. -->
+    <ProjectReference Include="..\..\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
     <ProjectReference Include="..\..\SharedKernel\WeakAppHandler.SharedKernel\WeakAppHandler.SharedKernel.csproj" />
   </ItemGroup>
 
