@@ -1402,3 +1402,94 @@ highest-value next step - it grows deploy/rabbitmq/definitions.json, which this 
 loaded correctly at boot, and it is the last thing standing between the backlog and TASK-016
 (Ingestor polling loop) -> the Processor consumer chain. TASK-007 (architecture docs + ADRs) is the
 other unblocked task but is documentation-only and blocks nothing.
+[2026-08-29] TASK-012 - DONE (RabbitMQ/MassTransit ingestion topology + real-broker proof).
+Resumed from a killed ralph.sh iteration that had left the implementation uncommitted on
+`task/task-012-rabbitmq-topology`: the production code was sound and complete, but the test project
+existed as a bare .csproj with no tests in it and was not in the solution, so NONE of the three
+acceptance criteria had ever been executed. Finished from that state rather than restarting.
+
+Topology as shipped (src/ServiceDefaults/WeakAppHandler.ServiceDefaults/Messaging/):
+  - `ReadingsTopology.cs` - the names, as consts shared by publisher and consumer so a rename is a
+    build break rather than a silently unbound queue: exchange `readings.exchange`, routing keys
+    `readings.ingested` / `readings.attempt`, queues of the same names, `_error` DLQ suffix.
+  - `ReadingsTopologyExtensions.cs` - `ConfigureReadingsTopology()` points both contract types at
+    the one durable topic exchange and pins each routing key (MassTransit's default would otherwise
+    give each CLR type its own fanout exchange, which is neither the exchange nor the routing scheme
+    the PRD specifies); `AddReadingsReceiveEndpoint<T>()` declares a durable, non-auto-delete
+    endpoint bound by routing key with `ConfigureConsumeTopology = false` (the default consume
+    topology would re-bind the endpoint to that per-type fanout and deliver both message kinds,
+    defeating the discrimination the topic exchange exists for) plus a retry policy.
+  - `ServiceMassTransitExtensions.cs` now applies the topology to every bus it builds and takes an
+    optional receive-endpoint callback; it also reads `RabbitMq:Port` instead of assuming 5672,
+    which is what lets a test point at a Testcontainers-published port.
+
+DELIBERATE: definitions.json is NOT the source of truth for this topology; MassTransit is. Declaring
+the same entity in both places only works while every property matches exactly, and any drift shows
+up as a PRECONDITION_FAILED that takes the whole bus down at startup. definitions.json keeps only
+broker-level concerns MassTransit never declares (vhost, users, permissions). The acceptance
+criterion explicitly allows either. The stale docker-compose.yml comment promising the opposite
+("the topology TASK-012 grows in deploy/rabbitmq/definitions.json", written during TASK-006) was
+corrected to say this.
+
+Tests added (tests/WeakAppHandler.Messaging.Tests, new project, added to WeakAppHandler.sln): four
+integration tests against a real broker, one per acceptance criterion plus a cross-talk guard. They
+assert through the RabbitMQ management HTTP API - the same data the management UI renders - because
+all three criteria are phrased in terms of what that UI shows, and because AMQP alone cannot report
+the depth of a queue nobody is consuming from. Each test gets its own vhost so the fixed entity
+names can still be asserted at exact queue depths.
+  - The harness (tests/Shared/.../RabbitMqIntegrationFixture.cs) grew: the management port is now
+    published, and `CreateVirtualHostAsync`/`DeleteVirtualHostAsync`/`RestartBrokerAsync` shell out
+    to `rabbitmqctl` inside the container.
+
+THREE REAL DEFECTS found only by running this against a live broker - none were visible statically:
+  1. Vhost + permissions created over the management HTTP API are applied BEHIND the response.
+     Granting permissions immediately after creating a vhost that way loses the grant often enough
+     that a bus connecting straight afterwards is refused: `ACCESS_REFUSED - configure access to
+     queue 'readings.ingested' ... refused for user 'rabbitmq'`. Fixed by doing both over
+     `rabbitmqctl add_vhost` / `set_permissions`, which are synchronous.
+  2. `MassTransitHostOptions.WaitUntilStarted` defaults to FALSE, so `IHost.StartAsync()` returns
+     before the bus has connected or declared anything. Two consequences: assertions ran against a
+     broker with no topology on it yet, and - much worse - a `StopAsync()` arriving inside that
+     window found the bus "Not Started", declined to stop it, and left an ORPHANED bus consuming
+     from the previous test's queues for the rest of the run. That orphan produced a 163,000-line
+     log of `R-FAULT ... Cannot access a disposed object. Object name: 'EventLogInternal'` (the bus
+     outliving the logger it was handed) and poisoned later tests. Set explicitly in the test host;
+     NOT changed in `AddServiceMassTransit`, since making a service refuse to start while the broker
+     is briefly unreachable is a production policy decision outside this task's scope.
+     WORTH REVISITING in TASK-047, when compose-level startup ordering is decided.
+  3. MassTransit declares an endpoint's `_error` queue the FIRST TIME it has to move a message into
+     it, not at endpoint startup. The initial startup-topology test asserted `readings.ingested_error`
+     existed right after boot and failed. This is transport behaviour, not a bug, so the assertion
+     moved to the dead-letter test (where the queue genuinely does appear) and the fact is recorded
+     on `ReadingsTopology.DeadLetterQueueSuffix`. CONSEQUENCE FOR TASK-042: an empty DLQ is ABSENT
+     from the management UI rather than shown at zero, so a Prometheus alert on DLQ depth cannot
+     assume the queue already exists.
+
+VERIFIED FOR REAL (Docker Desktop running; Testcontainers spun a real rabbitmq:3-management-alpine):
+  - Criterion 1: `Bus_OnStartup_DeclaresTheReadingsExchangeAndItsDurableQueues` - the management API
+    reports `readings.exchange` as type=topic, durable, not auto-delete, and both live queues durable
+    and not auto-delete. `Bus_OnStartup_BindsEachQueueToItsOwnRoutingKeyOnly` additionally proves
+    each queue is bound to its OWN routing key and NOT to the other's.
+  - Criterion 2 / test step 1: `PublishedMessage_IsPersistent_AndSurvivesABrokerRestart` - publishes
+    one message, waits for depth 1, restarts the broker application in-container
+    (`rabbitmqctl stop_app` + `start_app` + `await_startup`; restarting the CONTAINER is not
+    equivalent - Testcontainers would republish the AMQP port and invalidate the connection string),
+    then reads the message back off the queue with the raw AMQP client and asserts the broker really
+    stored it with the persistent delivery mode and that it is the same batch. Note the read has to
+    poll: the management stats DB can still be serving pre-restart depths right after start_app, so
+    an immediate empty read is not on its own evidence that the message is gone (this cost a
+    debugging cycle - the first failure looked like lost data and was not).
+  - Criterion 3 / test steps 2+3: `Message_WhoseConsumerAlwaysThrows_EndsUpInTheDeadLetterQueue` - a
+    consumer that throws on EVERY delivery, retryCount 2. Asserts the consumer was invoked exactly 3
+    times (1 delivery + 2 retries), i.e. the RETRY POLICY is what gave up rather than the transport
+    looping forever; that the message then lands in `readings.attempt_error` (durable); that the
+    dead-lettered body still carries the original batchId; and that the live queue is left empty.
+  - `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors + StyleCop).
+  - `dotnet test WeakAppHandler.sln` -> 40/40 passed across all six test assemblies, 0 failed.
+
+NEXT: TASK-016 (Ingestor polling loop) is the highest-value next step - TASK-011 (contracts) and now
+TASK-012 (topology) are both done, so the Ingestor finally has both the messages to publish and the
+exchange to publish them to, and it is what unblocks TASK-017 (Ingestor admin REST) and TASK-018 ->
+the whole Processor consumer chain. TASK-013 (Processor Core schema) is the other unblocked critical
+task and is independent of the messaging work. TASK-007 (architecture docs + ADRs) remains unblocked
+but is documentation-only and blocks nothing.

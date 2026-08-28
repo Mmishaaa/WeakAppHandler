@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- IHostApplicationBuilder, which AddServiceMassTransit extends. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <!-- Used directly (not through MassTransit) to inspect the broker from the outside: what a
+         queue actually holds and whether the delivery mode on the wire really is persistent. -->
+    <PackageReference Include="RabbitMQ.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
+  </ItemGroup>
+
+</Project>
