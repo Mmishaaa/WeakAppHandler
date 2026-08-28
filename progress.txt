@@ -1493,3 +1493,115 @@ exchange to publish them to, and it is what unblocks TASK-017 (Ingestor admin RE
 the whole Processor consumer chain. TASK-013 (Processor Core schema) is the other unblocked critical
 task and is independent of the messaging work. TASK-007 (architecture docs + ADRs) remains unblocked
 but is documentation-only and blocks nothing.
+
+[2026-08-29] TASK-016 - DONE (Ingestor polling loop: IngestAttemptRecorded on every attempt,
+ReadingsIngested only on success, shared batch id, cycle skipping on overrun). Picked as the previous
+entry recommended: TASK-011 (contracts) and TASK-012 (topology) were both done, so the Ingestor
+finally had both the messages to publish and the exchange to publish them to, and this is what
+unblocks TASK-017 (admin REST) and TASK-018 (the Processor consumer chain).
+
+Shipped under src/Ingestor/WeakAppHandler.Ingestor/Polling/:
+  - `IIngestionPoller` / `IngestionPoller` - one poll attempt, deliberately separated from the
+    scheduling. TASK-017's POST /api/v1/ingestion/trigger is the same operation started by a request
+    rather than by the timer, and PollOnceAsync returns the IngestAttemptRecorded it published so
+    that endpoint can report the batch outcome without a round trip through the broker.
+  - `PollingSchedule` - a pure function placing polls on a fixed grid of instants one interval apart.
+    Given the grid point the finished cycle belonged to and the instant it finished, it returns the
+    first grid point strictly after that and reports how many were passed over. Kept clock-free on
+    purpose: the overrun rule PRD §6 F1 states ("skip a cycle rather than queueing overlapping work")
+    is then decidable in a unit test with no host, broker or timer involved.
+  - `IngestionWorker` - the BackgroundService. Polls once immediately at startup, then follows the
+    schedule above. Because the grid is absolute rather than "sleep one interval after finishing", a
+    run of slow-but-not-overrunning cycles does not accumulate drift (there is a test for this).
+  - `MeterReadingEnvelopeMapper` - WeakApp's `name` becomes location, `type` becomes meterType, the
+    payload stays opaque JSON text plus a SHA-256 hash. Flattening into metric rows is F3's job.
+  - `AddIngestionPolling` registers the poller SCOPED and the worker opens a scope per cycle, because
+    MassTransit's IPublishEndpoint is scoped - a singleton poller would either fail validateScopes or
+    capture a disposed endpoint.
+  - Program.cs: AddServiceMassTransit() then AddIngestionPolling(), and THE ORDER IS LOAD-BEARING -
+    hosted services start in registration order and the first poll fires immediately, so registering
+    the loop before the bus would publish through a bus that has not connected yet. Commented in
+    place; the integration-test host repeats the same order for the same reason.
+  - appsettings.json gained a RabbitMq section (host/port/vhost/guest credentials) matching what
+    TASK-006's compose stack serves.
+  - Deleted the TASK-002 stub Worker.cs (a bare Task.Delay loop); IngestionWorker replaces it.
+
+DESIGN DECISIONS worth not re-litigating:
+  - ReadingsIngested is published BEFORE IngestAttemptRecorded. Neither publish is transactional, so
+    one can be lost; readings arriving without their batch row are recoverable, whereas a batch row
+    claiming a reading count whose readings never arrive is a permanent lie about what was ingested.
+    The attempt record is therefore the commit marker and goes last.
+  - fetchedAt is captured AFTER the HTTP call returns, not before: PRD §6 F2 defines it as the instant
+    the response was received, and the Processor uses it as observed_at because the source carries no
+    timestamp of its own.
+  - MessageId is a fresh NewId.NextGuid() per message while BatchId is shared - the two messages are
+    deduplicated independently by the processed_messages ledger (TASK-018), so sharing the
+    idempotency key would make a redelivery of one look like the other.
+  - error_message is truncated to 1024 chars before publishing (PRD §7.1 documents the column as
+    truncated); an unbounded upstream body would otherwise be copied into every message and log line.
+  - Failure outcomes are logged once per STATE CHANGE, not per attempt (PRD §6 F1). That state lives
+    in the worker (a singleton) rather than the poller (scoped, new instance per cycle) - which is
+    why the transition logging is IngestionWorker.ReportOutcome and not part of IngestionPoller.
+  - A payload-less meter element maps to "{}" rather than throwing: JsonElement.GetRawText() throws on
+    an undefined element, which would fail an entire 18-meter batch over one malformed entry.
+
+Testing - 18 new tests in tests/WeakAppHandler.Ingestor.Tests (21 in that assembly with TASK-015's
+three), split by what each level can actually prove:
+  - PollingScheduleTests (5, pure, no clock): the next grid point; two skipped cycles on a 25s overrun
+    of a 10s interval; a cycle finishing exactly ON a grid point counts that point as consumed; no
+    drift accumulation over ten late cycles; a non-positive interval throwing instead of looping.
+  - IngestionPollerTests (9, MassTransit's in-memory ITestHarness driving the REAL IngestionPoller, so
+    the assertions are about what a bus was genuinely asked to publish): both messages with one
+    batchId but different messageIds; envelope mapping including the exact SHA-256 payload hash; an
+    empty array is a zero-reading SUCCESS and not corruption; a [Theory] over all five failure
+    outcomes (corrupted/http_error/rate_limited/unauthorized/timeout) asserting the attempt is
+    recorded with reading_count 0 and NO ReadingsIngested published; and error-message truncation.
+    The poller is resolved from a fresh scope with validateScopes:true, so a scoped-lifetime mistake
+    fails the test rather than production.
+  - IngestionWorkerTests (2, real clock, real BackgroundService): a 1.2s poll on a 1s interval must
+    start its successors ~2s apart (a skipped cycle) and never closer than 1.7s - anything near 1.2s
+    is the loop catching up, which is what "overlapping polls" degenerates into - and
+    MaxConcurrentPolls must stay 1. Second test: a poll that throws does not kill the loop. Used a
+    real short interval rather than FakeTimeProvider for the reason TASK-015's entry already recorded
+    (pumping a fake clock while a background loop awaits inside it is a synchronization hazard, not a
+    simplification).
+  - IngestionPublishingTests (2, REAL RabbitMQ via Testcontainers and the shared
+    RabbitMqIntegrationFixture, per-test vhost): boots the Ingestor host the way Program.cs does -
+    same AddServiceMassTransit, same shipped ReadingsTopology, same AddIngestionPolling, same order,
+    with only the HTTP client faked - and asserts the messages actually ROUTE to readings.ingested and
+    readings.attempt by routing key, pairing them by batchId. This is the half an in-memory bus cannot
+    prove. Confirmed in the live run ("Ingestion polling started with a 00:00:10 interval" ->
+    "WeakApp polling recovered; ingested 18 readings", both endpoints configured, both consumers fed).
+    Second test: a corrupted response delivers ONLY the attempt record and readings.ingested stays
+    empty - and because the attempt record is published last, its arrival proves the absence is real
+    rather than a race.
+  - Test data comes from docs/weakapp-observed-response.json's real 18-element capture rather than
+    invented meters, so the batch size the tests exercise is the batch size production sees.
+  - Added InternalsVisibleTo(WeakAppHandler.Ingestor.Tests) to the Ingestor csproj - the loop and its
+    schedule are the service's own machinery, not API for other services, but the tests drive them
+    directly. Ingestor.Tests also gained a ProjectReference to the shared IntegrationTesting harness
+    and a FrameworkReference to Microsoft.AspNetCore.App (for IHostApplicationBuilder).
+
+Analyzer notes for whoever writes the next service: SA1204 wants private STATIC members (including
+[LoggerMessage] partials) before private INSTANCE ones but after higher-accessibility members, so
+IngestionWorker's log declarations sit between ExecuteAsync and RunOneCycleAsync rather than at the
+bottom of the file; IDE0040 requires an explicit `public` on interface members; and CA1031 needed a
+narrowly scoped pragma with justification around the loop's catch-all (a single bad cycle must not
+take the service down).
+
+VERIFIED: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings / 0 errors
+(TreatWarningsAsErrors + StyleCop). `dotnet build ingestor.slnf` -> clean. `dotnet test
+ingestor.slnf` -> 21/21. `dotnet test WeakAppHandler.sln` -> 58/58 passed, 0 failed across all six
+test assemblies (Docker Desktop running; Testcontainers PostgreSQL + RabbitMQ). No frontend exists
+yet, so the npm lint/build checks do not apply.
+  - tasks.json: TASK-016 status -> "done".
+
+NEXT: TASK-017 (Ingestor admin REST: GET /status, POST /trigger, PUT /config behind a machine JWT
+with scope ingestion:admin) is now unblocked and is the natural follow-up - IIngestionPoller already
+returns the batch outcome specifically so /trigger can answer with it, and the Ingestor host is
+already Sdk.Web with ServiceDefaults' auth seam wired in. Be aware that the in-memory state /status
+has to expose (last outcome, error counters BY REASON, circuit-breaker state, current interval) does
+NOT exist yet: IngestionWorker tracks only the last outcome, for its state-change logging, and the
+circuit-breaker state lives inside Polly's pipeline and is surfaced nowhere - that plumbing is
+TASK-017's real work, not a formality. TASK-018 (Processor consumer + idempotency) is the other newly
+unblocked critical task and opens the whole Processor chain.
