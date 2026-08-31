@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gateway\WeakAppHandler.Gateway.Api\WeakAppHandler.Gateway.Api.csproj" />
+    <!-- Test-only: seeds realistic rows into the same core schema via the service that actually
+         owns and migrates it, rather than duplicating migrations the Gateway itself must never run. -->
+    <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
+    <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
+  </ItemGroup>
+
+</Project>

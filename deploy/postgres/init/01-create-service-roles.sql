@@ -12,7 +12,12 @@ GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO processor;
 CREATE ROLE auth LOGIN PASSWORD 'auth_password';
 GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO auth;
 
+-- Gateway only ever SELECTs (TASK-023) and never migrates, but until TASK-043 introduces the real
+-- read-only gateway_ro role, it shares the same broad placeholder credentials as the write services.
+CREATE ROLE gateway LOGIN PASSWORD 'gateway_password';
+GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO gateway;
+
 -- PostgreSQL 15+ no longer grants CREATE on the public schema to every role by default;
 -- without this, EF Core migrations from either service would fail with
 -- "permission denied for schema public".
-GRANT ALL ON SCHEMA public TO processor, auth;
+GRANT ALL ON SCHEMA public TO processor, auth, gateway;
