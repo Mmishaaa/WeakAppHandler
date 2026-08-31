@@ -1754,3 +1754,60 @@ task deliberately left as a placeholder: compare each new value against `meter_c
 itself, and publish `ReadingStored` with value/previousValue/isChanged for the Notification service's
 rule engine to consume later. TASK-017 (Ingestor admin REST) and TASK-021 (Processor /stats REST) are
 the other unblocked tasks but are both lower priority (high/medium) and independent of this chain.
+
+[2026-09-01] TASK-020 - DONE
+Processor: meter_current_state comparison (is_changed), current-state upsert, ReadingStored
+publishing with value/previousValue/isChanged (PRD §6 F3).
+
+Design (MeterReadingBatchWriter, extending TASK-019's writer rather than a separate class, since
+change detection has to happen per value in the same loop that flattens the payload):
+  - ApplyCurrentStateAsync compares each normalised value against meter_current_state keyed on
+    (meter_id, metric_code): no prior row means IsChanged=true with PreviousValue=null (nothing to
+    compare a metric's first observation against); a prior row compares ValueNumeric/ValueBool,
+    always advances observed_at, and only moves changed_at when the value actually differs -
+    matching the acceptance criterion that a repeated identical poll still advances observed_at
+    while leaving readings.is_changed false.
+  - Per-batch (meterId, metricCode) cache alongside TASK-019's per-batch meter cache, for the same
+    reason: a current-state row created earlier in this same WriteAsync loop has not been saved yet,
+    so a second query within the batch would miss it.
+  - WriteAsync's return type changed from a row count to IReadOnlyList<ReadingStored> - one event per
+    metric written, built from the same comparison that decided is_changed, so the event's
+    value/previousValue/isChanged can never disagree with what was actually persisted.
+  - IngestionRecorder.RecordAsync's persist delegate now returns the events and publishes them via
+    IPublishEndpoint strictly AFTER transaction.CommitAsync succeeds - publishing before commit could
+    announce a reading a later rollback then erases, and a message already handed to the broker
+    cannot be un-published. An attempt-only message (ApplyAttemptAsync) returns an empty list: it
+    carries no readings of its own to announce.
+  - ReadingsTopology gained StoredRoutingKey/StoredQueueName ("readings.stored") and
+    ReadingsTopologyExtensions now configures ReadingStored as a published message on the shared
+    topic exchange - publish side only, since no permanent consumer exists yet (that is the
+    Notification service's rule engine, TASK-029).
+
+Testing:
+  - MeterReadingBatchWriterTests gained 3 tests directly on top of TASK-019's: a brand-new
+    (meter, metric) pair is changed with no previous value; an identical second poll is unchanged but
+    still advances meter_current_state.observed_at while changed_at stays put; a changed second poll
+    flips is_changed, carries the old value forward as previousValue, and moves changed_at.
+  - IngestionRecorderTests (real Postgres, recorder called directly) gained publish-ordering
+    assertions against an in-memory MassTransit harness backing IPublishEndpoint
+    (IngestionRecorderTestBus): a redelivered message publishes nothing a second time, a failed
+    attempt publishes nothing at all, and - the one that actually matters for the commit-then-publish
+    guarantee - a writer that fails halfway publishes NOTHING, while the clean retry that follows
+    publishes exactly once. Deliberately NOT the in-memory ITestHarness.InactivityTask pattern
+    TASK-018's entry flagged as unreliable across multiple deliveries; these assertions read
+    Harness.Published directly after an awaited in-process call returns, which carries no such race.
+  - IngestionConsumerTests (real RabbitMQ) gained a new end-to-end test: publishes a ReadingsIngested
+    batch through ProcessorHost and asserts the ReadingStored event is actually reachable on the
+    readings.stored routing key via a test-only ReadingStoredCollectorConsumer bound in ProcessorHost,
+    not just that IngestionRecorder called Publish() in isolation.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 82/82 passed across all test assemblies (Docker
+Desktop running; Testcontainers PostgreSQL + RabbitMQ).
+  - tasks.json: TASK-020 status -> "done".
+
+NEXT: TASK-023 (critical, now unblocked) starts the Gateway - a HotChocolate GraphQL project with a
+read-only NoTracking DbContext over the core schema, exposing meters and readings queries with
+Relay-style pagination. It has no dependency on TASK-021/022 (Ingestor circuit breaker / retry
+policy tuning), so it can proceed in parallel with those if a future iteration picks one of them
+instead - both TASK-017 and TASK-027 are also unblocked and high-priority.

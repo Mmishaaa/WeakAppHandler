@@ -29,6 +29,7 @@ public static class ReadingsTopologyExtensions
 
         ConfigurePublishedMessage<ReadingsIngested>(configurator, ReadingsTopology.IngestedRoutingKey);
         ConfigurePublishedMessage<IngestAttemptRecorded>(configurator, ReadingsTopology.AttemptRoutingKey);
+        ConfigurePublishedMessage<ReadingStored>(configurator, ReadingsTopology.StoredRoutingKey);
     }
 
     /// <summary>

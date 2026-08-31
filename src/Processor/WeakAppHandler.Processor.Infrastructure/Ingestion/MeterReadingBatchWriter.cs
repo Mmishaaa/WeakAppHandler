@@ -8,22 +8,25 @@ using WeakAppHandler.Processor.Infrastructure.Persistence;
 namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 
 /// <summary>
-/// Auto-registers meters and flattens each poll's payloads into <c>readings</c> rows (PRD §6 F3).
-/// Runs inside <see cref="IngestionRecorder"/>'s open transaction: a meter it creates and the
-/// readings it writes for that meter are committed together with the batch row or not at all.
+/// Auto-registers meters, flattens each poll's payloads into <c>readings</c> rows, and compares each
+/// value against <c>meter_current_state</c> to detect change and build the <see cref="ReadingStored"/>
+/// events the caller publishes (PRD §6 F3). Runs inside <see cref="IngestionRecorder"/>'s open
+/// transaction: a meter it creates and the readings/current-state rows it writes for that meter are
+/// committed together with the batch row or not at all.
 /// </summary>
 /// <remarks>
-/// <c>readings.is_changed</c> is written as <see langword="true"/> for every row here. Comparing a
-/// new value against <c>meter_current_state</c> and publishing <see cref="ReadingStored"/> is
-/// TASK-020's own subject, not this writer's — it only flattens payloads and registers meters.
+/// The events this returns are not published here. Publishing before the surrounding transaction
+/// commits would announce a reading that a later rollback then erases, so
+/// <see cref="IngestionRecorder"/> only publishes them once the commit has actually happened.
 /// </remarks>
 public sealed partial class MeterReadingBatchWriter(
     CoreDbContext dbContext,
     ILogger<MeterReadingBatchWriter> logger) : IReadingBatchWriter
 {
     private readonly Dictionary<(string Location, string MeterType), Guid> _meterIds = [];
+    private readonly Dictionary<(Guid MeterId, string MetricCode), MeterCurrentState> _currentStates = [];
 
-    public async Task<int> WriteAsync(
+    public async Task<IReadOnlyList<ReadingStored>> WriteAsync(
         Guid batchId,
         DateTimeOffset observedAt,
         IReadOnlyList<MeterReadingEnvelope> readings,
@@ -31,7 +34,7 @@ public sealed partial class MeterReadingBatchWriter(
     {
         ArgumentNullException.ThrowIfNull(readings);
 
-        var rowCount = 0;
+        var events = new List<ReadingStored>();
 
         foreach (var envelope in readings)
         {
@@ -39,6 +42,9 @@ public sealed partial class MeterReadingBatchWriter(
 
             foreach (var value in PayloadNormalizer.Normalize(envelope.Payload))
             {
+                var (isChanged, previousValue) = await ApplyCurrentStateAsync(
+                    meterId, value, observedAt, cancellationToken).ConfigureAwait(false);
+
                 dbContext.Readings.Add(new Reading
                 {
                     MeterId = meterId,
@@ -46,15 +52,26 @@ public sealed partial class MeterReadingBatchWriter(
                     ObservedAt = observedAt,
                     ValueNumeric = value.ValueNumeric,
                     ValueBool = value.ValueBool,
-                    IsChanged = true,
+                    IsChanged = isChanged,
                     BatchId = batchId,
                 });
-                rowCount++;
+
+                events.Add(new ReadingStored(
+                    meterId,
+                    envelope.Location,
+                    envelope.MeterType,
+                    value.MetricCode,
+                    ToMetricValue(value.ValueNumeric, value.ValueBool),
+                    previousValue,
+                    isChanged,
+                    observedAt));
             }
         }
 
-        return rowCount;
+        return events;
     }
+
+    private static MetricValue ToMetricValue(decimal? numeric, bool? boolean) => new((double?)numeric, boolean);
 
     [LoggerMessage(
         Level = LogLevel.Information,
@@ -109,5 +126,70 @@ public sealed partial class MeterReadingBatchWriter(
         _meterIds[key] = meterId;
 
         return meterId;
+    }
+
+    /// <summary>
+    /// Compares <paramref name="value"/> against the (meter, metric) pair's current state, upserts
+    /// that state, and reports whether the value changed plus what it changed from. A pair with no
+    /// prior state is always reported as changed with no previous value — there is nothing to
+    /// compare the very first observation of a meter's metric against.
+    /// </summary>
+    private async Task<(bool IsChanged, MetricValue? PreviousValue)> ApplyCurrentStateAsync(
+        Guid meterId,
+        NormalizedMetricValue value,
+        DateTimeOffset observedAt,
+        CancellationToken cancellationToken)
+    {
+        var key = (meterId, value.MetricCode);
+
+        // Cached rather than re-queried on a repeat within this same batch, for the same reason the
+        // meter cache above exists: a row created earlier in this loop has not been saved yet.
+        if (!_currentStates.TryGetValue(key, out var state))
+        {
+            state = await dbContext.MeterCurrentStates
+                .FirstOrDefaultAsync(
+                    s => s.MeterId == meterId && s.MetricCode == value.MetricCode,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (state is null)
+        {
+            state = new MeterCurrentState
+            {
+                MeterId = meterId,
+                MetricCode = value.MetricCode,
+                ValueNumeric = value.ValueNumeric,
+                ValueBool = value.ValueBool,
+                ObservedAt = observedAt,
+                ChangedAt = observedAt,
+            };
+
+            dbContext.MeterCurrentStates.Add(state);
+            _currentStates[key] = state;
+
+            return (IsChanged: true, PreviousValue: null);
+        }
+
+        var previousValue = ToMetricValue(state.ValueNumeric, state.ValueBool);
+        var isChanged = state.ValueNumeric != value.ValueNumeric || state.ValueBool != value.ValueBool;
+
+        state.PreviousValueNumeric = state.ValueNumeric;
+        state.PreviousValueBool = state.ValueBool;
+        state.ValueNumeric = value.ValueNumeric;
+        state.ValueBool = value.ValueBool;
+
+        // observed_at advances on every poll that reports this metric, changed or not; changed_at
+        // only moves when the value itself actually moved.
+        state.ObservedAt = observedAt;
+
+        if (isChanged)
+        {
+            state.ChangedAt = observedAt;
+        }
+
+        _currentStates[key] = state;
+
+        return (isChanged, previousValue);
     }
 }

@@ -15,7 +15,7 @@ internal sealed class FailingReadingBatchWriter(CoreDbContext dbContext, Guid me
 {
     public const string FailureMessage = "Normalisation failed halfway through the batch.";
 
-    public async Task<int> WriteAsync(
+    public async Task<IReadOnlyList<ReadingStored>> WriteAsync(
         Guid batchId,
         DateTimeOffset observedAt,
         IReadOnlyList<MeterReadingEnvelope> readings,
