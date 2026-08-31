@@ -2,16 +2,19 @@ using Microsoft.EntityFrameworkCore;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.Processor.Application.Ingestion;
 using WeakAppHandler.Processor.Domain;
+using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
 
 namespace WeakAppHandler.Processor.Infrastructure.Tests;
 
 /// <summary>
-/// Stands in for the normalisation TASK-019 builds, writing exactly one <c>readings</c> row per
-/// meter envelope so a test can count rows and see whether the batch and its readings were really
-/// committed together. Deliberately minimal — it registers a meter and stores a fixed metric rather
-/// than flattening payloads — because what is under test here is the transaction and the ledger,
-/// not the shape of a reading.
+/// Stands in for the normalisation TASK-019/020 build, writing exactly one <c>readings</c> row and
+/// one fixed <see cref="ReadingStored"/> event per meter envelope, so a test can count rows and see
+/// whether the batch, its readings and the events <see cref="IngestionRecorder"/> publishes were
+/// really committed together. Deliberately minimal — it registers a meter and stores a fixed metric
+/// rather than flattening payloads or comparing against <c>meter_current_state</c> — because what is
+/// under test here is the transaction, the ledger and the publish-after-commit ordering, not the
+/// shape of a reading.
 /// </summary>
 internal sealed class TestReadingBatchWriter(CoreDbContext dbContext) : IReadingBatchWriter
 {
@@ -22,13 +25,15 @@ internal sealed class TestReadingBatchWriter(CoreDbContext dbContext) : IReading
 
     public int Invocations { get; private set; }
 
-    public async Task<int> WriteAsync(
+    public async Task<IReadOnlyList<ReadingStored>> WriteAsync(
         Guid batchId,
         DateTimeOffset observedAt,
         IReadOnlyList<MeterReadingEnvelope> readings,
         CancellationToken cancellationToken)
     {
         Invocations++;
+
+        var events = new List<ReadingStored>();
 
         foreach (var envelope in readings)
         {
@@ -43,9 +48,19 @@ internal sealed class TestReadingBatchWriter(CoreDbContext dbContext) : IReading
                 IsChanged = true,
                 BatchId = batchId,
             });
+
+            events.Add(new ReadingStored(
+                meterId,
+                envelope.Location,
+                envelope.MeterType,
+                MetricCode,
+                new MetricValue(1, null),
+                PreviousValue: null,
+                IsChanged: true,
+                observedAt));
         }
 
-        return readings.Count;
+        return events;
     }
 
     private async Task<Guid> ResolveMeterIdAsync(

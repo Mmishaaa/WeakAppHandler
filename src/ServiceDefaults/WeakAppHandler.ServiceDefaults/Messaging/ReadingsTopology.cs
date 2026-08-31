@@ -18,9 +18,18 @@ public static class ReadingsTopology
 
     public const string AttemptRoutingKey = "readings.attempt";
 
+    /// <summary>
+    /// Published by the Processor once per stored metric (PRD §6 F3/TASK-020). No receive endpoint
+    /// binds to this routing key yet — the Notification service's rule engine (TASK-029) is its
+    /// first real consumer — so only the publish side of the topology is configured for it so far.
+    /// </summary>
+    public const string StoredRoutingKey = "readings.stored";
+
     public const string IngestedQueueName = "readings.ingested";
 
     public const string AttemptQueueName = "readings.attempt";
+
+    public const string StoredQueueName = "readings.stored";
 
     /// <summary>
     /// MassTransit moves a message that exhausts its retry policy to a queue named after the

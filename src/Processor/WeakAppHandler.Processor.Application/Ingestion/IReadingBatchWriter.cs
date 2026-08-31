@@ -10,16 +10,18 @@ namespace WeakAppHandler.Processor.Application.Ingestion;
 /// <remarks>
 /// The seam exists because normalisation itself — meter auto-registration, payload flattening into
 /// one row per metric, change detection against <c>meter_current_state</c> — is F3's own subject.
-/// <c>MeterReadingBatchWriter</c> (TASK-019) implements meter registration and payload flattening;
-/// comparing values against <c>meter_current_state</c> and publishing
-/// <c>ReadingStored</c> is still TASK-020's.
+/// <c>MeterReadingBatchWriter</c> implements all of it: meter registration and payload flattening
+/// (TASK-019), and comparing each value against <c>meter_current_state</c> to produce the
+/// <c>ReadingStored</c> events this method returns (TASK-020). The events are not published here —
+/// the caller (<c>IngestionRecorder</c>) only publishes them once its surrounding transaction has
+/// actually committed.
 /// </remarks>
 public interface IReadingBatchWriter
 {
     /// <summary>
-    /// Persists the readings carried by one batch and returns how many <c>readings</c> rows were
-    /// written. The implementation must use the same <c>DbContext</c> as its caller: it is running
-    /// inside an open transaction and must not commit or dispose it.
+    /// Persists the readings carried by one batch and returns one <see cref="ReadingStored"/> per
+    /// <c>readings</c> row written. The implementation must use the same <c>DbContext</c> as its
+    /// caller: it is running inside an open transaction and must not commit or dispose it.
     /// </summary>
     /// <param name="batchId">The <c>ingest_batches</c> row these readings belong to. The row is
     /// already inserted and visible to the current transaction when this is called.</param>
@@ -27,7 +29,7 @@ public interface IReadingBatchWriter
     /// no timestamp of its own, so this is the observation time for every reading in the batch.</param>
     /// <param name="readings">One envelope per meter in the poll, payload still opaque JSON.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public Task<int> WriteAsync(
+    public Task<IReadOnlyList<ReadingStored>> WriteAsync(
         Guid batchId,
         DateTimeOffset observedAt,
         IReadOnlyList<MeterReadingEnvelope> readings,

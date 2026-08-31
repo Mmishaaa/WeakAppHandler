@@ -1,3 +1,5 @@
+using MassTransit;
+using MassTransit.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WeakAppHandler.Contracts;
@@ -14,7 +16,8 @@ namespace WeakAppHandler.Processor.Infrastructure.Tests;
 /// id writes nothing a second time, a failed attempt still produces an <c>ingest_batches</c> row
 /// with no readings, and the batch, its readings and the idempotency ledger entry are one
 /// transaction. The database is what has to be checked here — an in-memory provider would happily
-/// pass a test about transactions it does not implement.
+/// pass a test about transactions it does not implement. Also TASK-020's publish ordering: a
+/// <see cref="ReadingStored"/> event only reaches the bus once its batch has actually committed.
 /// </summary>
 [Collection(IntegrationCollectionDefinition.Name)]
 public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
@@ -23,11 +26,12 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
     public async Task RecordReadingsAsync_SameMessageDeliveredTwice_WritesOneBatchAndOneSetOfReadings()
     {
         await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
+        await using var bus = await IngestionRecorderTestBus.StartAsync();
 
         var batchId = Guid.NewGuid();
         var message = IngestionMessages.Readings(batchId, "duplicate-readings", meterCount: 2);
         var writer = new TestReadingBatchWriter(context);
-        var recorder = CreateRecorder(context, writer);
+        var recorder = CreateRecorder(context, writer, bus.PublishEndpoint);
 
         var first = await recorder.RecordReadingsAsync(message, CancellationToken.None);
         var second = await recorder.RecordReadingsAsync(message, CancellationToken.None);
@@ -41,16 +45,21 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
 
         Assert.Equal(1, await context.IngestBatches.CountAsync(b => b.Id == batchId));
         Assert.Equal(2, await context.Readings.CountAsync(r => r.BatchId == batchId));
+
+        // The redelivery must not re-publish either — its effects were already announced once, and
+        // the ledger check short-circuits before the writer (and its events) ever runs again.
+        Assert.Equal(2, bus.Harness.Published.Select<ReadingStored>().Count());
     }
 
     [Fact]
     public async Task RecordAttemptAsync_SameMessageDeliveredTwice_WritesOneBatchRow()
     {
         await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
+        await using var bus = await IngestionRecorderTestBus.StartAsync();
 
         var batchId = Guid.NewGuid();
         var message = IngestionMessages.Attempt(batchId, IngestOutcome.Success, readingCount: 3);
-        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context));
+        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context), bus.PublishEndpoint);
 
         var first = await recorder.RecordAttemptAsync(message, CancellationToken.None);
         var second = await recorder.RecordAttemptAsync(message, CancellationToken.None);
@@ -58,6 +67,9 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
         Assert.Equal(IngestionRecordResult.Recorded, first);
         Assert.Equal(IngestionRecordResult.Duplicate, second);
         Assert.Equal(1, await context.IngestBatches.CountAsync(b => b.Id == batchId));
+
+        // An attempt record carries no readings of its own to announce.
+        Assert.Empty(bus.Harness.Published.Select<ReadingStored>());
     }
 
     [Theory]
@@ -71,6 +83,7 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
         int? httpStatus)
     {
         await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
+        await using var bus = await IngestionRecorderTestBus.StartAsync();
 
         var batchId = Guid.NewGuid();
         var message = IngestionMessages.Attempt(
@@ -80,7 +93,7 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
             httpStatus: httpStatus,
             errorMessage: "WeakApp did not answer with usable data.");
 
-        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context));
+        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context), bus.PublishEndpoint);
 
         var result = await recorder.RecordAttemptAsync(message, CancellationToken.None);
 
@@ -102,6 +115,7 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
     public async Task RecordReadingsAsync_WriterFailsHalfway_CommitsNothingAndLeavesTheMessageRetryable()
     {
         await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
+        await using var bus = await IngestionRecorderTestBus.StartAsync();
 
         var observedAt = DateTimeOffset.UtcNow;
         var meterId = Guid.NewGuid();
@@ -122,7 +136,7 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
         var message = IngestionMessages.Readings(batchId, "atomicity", meterCount: 1);
 
         var failure = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => CreateRecorder(context, new FailingReadingBatchWriter(context, meterId))
+            () => CreateRecorder(context, new FailingReadingBatchWriter(context, meterId), bus.PublishEndpoint)
                 .RecordReadingsAsync(message, CancellationToken.None));
 
         Assert.Equal(FailingReadingBatchWriter.FailureMessage, failure.Message);
@@ -133,23 +147,32 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
         Assert.False(await context.Readings.AnyAsync(r => r.BatchId == batchId));
         Assert.False(await context.ProcessedMessages.AnyAsync(m => m.MessageId == message.MessageId));
 
+        // Nothing was published either: the writer's own events never leave WriteAsync when it
+        // throws, and even if they had, there is no commit to publish after.
+        Assert.Empty(bus.Harness.Published.Select<ReadingStored>());
+
         // And because the ledger is clean, the redelivery MassTransit makes after the fault can
         // still succeed — a half-written ledger entry would have silently swallowed the batch.
-        var retry = await CreateRecorder(context, new TestReadingBatchWriter(context))
+        var retry = await CreateRecorder(context, new TestReadingBatchWriter(context), bus.PublishEndpoint)
             .RecordReadingsAsync(message, CancellationToken.None);
 
         Assert.Equal(IngestionRecordResult.Recorded, retry);
         Assert.Equal(1, await context.IngestBatches.CountAsync(b => b.Id == batchId));
         Assert.Equal(1, await context.Readings.CountAsync(r => r.BatchId == batchId));
+
+        // Now that the retry really committed, its event is published — the earlier failure left no
+        // trace on the bus at all.
+        Assert.Single(bus.Harness.Published.Select<ReadingStored>());
     }
 
     [Fact]
     public async Task RecordAttemptAsync_WhenTheReadingsArrivedFirst_OverwritesTheProvisionalBatchRow()
     {
         await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
+        await using var bus = await IngestionRecorderTestBus.StartAsync();
 
         var batchId = Guid.NewGuid();
-        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context));
+        var recorder = CreateRecorder(context, new TestReadingBatchWriter(context), bus.PublishEndpoint);
 
         // The Ingestor publishes the readings before the attempt record, and the two queues are
         // consumed independently, so this is the ordinary order rather than an edge case.
@@ -185,6 +208,7 @@ public sealed class IngestionRecorderTests(IntegrationTestFixture fixture)
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unknown ingest outcome."),
     };
 
-    private static IngestionRecorder CreateRecorder(CoreDbContext context, IReadingBatchWriter writer) =>
-        new(context, writer, TimeProvider.System, NullLogger<IngestionRecorder>.Instance);
+    private static IngestionRecorder CreateRecorder(
+        CoreDbContext context, IReadingBatchWriter writer, IPublishEndpoint publishEndpoint) =>
+        new(context, writer, publishEndpoint, TimeProvider.System, NullLogger<IngestionRecorder>.Instance);
 }

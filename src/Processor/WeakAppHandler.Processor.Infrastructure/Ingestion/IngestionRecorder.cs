@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -30,6 +31,7 @@ namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 public sealed partial class IngestionRecorder(
     CoreDbContext dbContext,
     IReadingBatchWriter readingBatchWriter,
+    IPublishEndpoint publishEndpoint,
     TimeProvider timeProvider,
     ILogger<IngestionRecorder> logger)
 {
@@ -101,7 +103,7 @@ public sealed partial class IngestionRecorder(
 
     private async Task<IngestionRecordResult> RecordAsync(
         Guid messageId,
-        Func<CancellationToken, Task> persist,
+        Func<CancellationToken, Task<IReadOnlyList<ReadingStored>>> persist,
         CancellationToken cancellationToken)
     {
         var alreadyProcessed = await dbContext.ProcessedMessages
@@ -130,10 +132,18 @@ public sealed partial class IngestionRecorder(
 
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            await persist(cancellationToken).ConfigureAwait(false);
+            var events = await persist(cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             committed = true;
+
+            // Published only now that the transaction has actually committed: publishing beforehand
+            // could announce readings a later rollback then erases, and a message already handed to
+            // the broker cannot be un-published.
+            foreach (var readingStored in events)
+            {
+                await publishEndpoint.Publish(readingStored, cancellationToken).ConfigureAwait(false);
+            }
 
             return IngestionRecordResult.Recorded;
         }
@@ -172,7 +182,9 @@ public sealed partial class IngestionRecorder(
         }
     }
 
-    private async Task ApplyAttemptAsync(IngestAttemptRecorded attempt, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ReadingStored>> ApplyAttemptAsync(
+        IngestAttemptRecorded attempt,
+        CancellationToken cancellationToken)
     {
         var outcome = MapOutcome(attempt.Outcome);
 
@@ -207,9 +219,15 @@ public sealed partial class IngestionRecorder(
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         LogAttemptRecorded(logger, outcome, attempt.BatchId, attempt.ReadingCount);
+
+        // An attempt record never carries readings of its own — those, if any, arrive on the other
+        // message of the same batch and are the readings consumer's own concern.
+        return [];
     }
 
-    private async Task ApplyReadingsAsync(ReadingsIngested readings, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ReadingStored>> ApplyReadingsAsync(
+        ReadingsIngested readings,
+        CancellationToken cancellationToken)
     {
         var batchExists = await dbContext.IngestBatches
             .AnyAsync(b => b.Id == readings.BatchId, cancellationToken)
@@ -236,13 +254,15 @@ public sealed partial class IngestionRecorder(
         // insert goes back out with it.
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        var rowCount = await readingBatchWriter
+        var events = await readingBatchWriter
             .WriteAsync(readings.BatchId, readings.FetchedAt, readings.Readings, cancellationToken)
             .ConfigureAwait(false);
 
         // The writer shares this context and is not required to flush what it tracked.
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        LogReadingsRecorded(logger, rowCount, readings.Readings.Count, readings.BatchId);
+        LogReadingsRecorded(logger, events.Count, readings.Readings.Count, readings.BatchId);
+
+        return events;
     }
 }
