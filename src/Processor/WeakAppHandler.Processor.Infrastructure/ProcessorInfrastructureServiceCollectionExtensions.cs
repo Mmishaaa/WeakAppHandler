@@ -28,7 +28,7 @@ public static class ProcessorInfrastructureServiceCollectionExtensions
 
         // Scoped, like the DbContext they share: a consumer resolves one recorder per delivery, and
         // the transaction it opens lives and dies inside that delivery's scope.
-        services.TryAddScoped<IReadingBatchWriter, NoOpReadingBatchWriter>();
+        services.TryAddScoped<IReadingBatchWriter, MeterReadingBatchWriter>();
         services.TryAddScoped<IngestionRecorder>();
 
         return services;
