@@ -16,7 +16,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- IHostApplicationBuilder and the generic host, which the consumer tests build the Processor
+         on the way Program.cs does. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
+    <!-- The RabbitMQ topology the consumers are bound to. The Worker project is deliberately not
+         referenced: the test host mirrors its wiring instead, so a test cannot depend on anything
+         the service host does not itself register. -->
+    <ProjectReference Include="..\..\src\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 

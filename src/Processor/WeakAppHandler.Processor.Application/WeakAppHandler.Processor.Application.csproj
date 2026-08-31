@@ -1,5 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\WeakAppHandler.Processor.Domain\WeakAppHandler.Processor.Domain.csproj" />
+    <!-- The ingestion messages are this layer's input boundary. Contracts has no dependencies of
+         its own, so referencing it here costs the Application layer nothing. -->
+    <ProjectReference Include="..\..\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,10 @@
     <ProjectReference Include="..\WeakAppHandler.Processor.Application\WeakAppHandler.Processor.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The ingestion consumers are adapters onto the queue, so they belong to this layer. Only the
+         transport-agnostic package is referenced: which exchange and queue they are bound to is the
+         host's decision and lives in ServiceDefaults' RabbitMQ topology. -->
+    <PackageReference Include="MassTransit" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />

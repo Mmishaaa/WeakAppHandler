@@ -1605,3 +1605,70 @@ NOT exist yet: IngestionWorker tracks only the last outcome, for its state-chang
 circuit-breaker state lives inside Polly's pipeline and is surfaced nowhere - that plumbing is
 TASK-017's real work, not a formality. TASK-018 (Processor consumer + idempotency) is the other newly
 unblocked critical task and opens the whole Processor chain.
+
+[2026-09-01] TASK-018 - DONE
+Processor: consumers for ReadingsIngested/IngestAttemptRecorded with idempotency through a
+processed_messages ledger, and one-transaction ingest_batches + readings writes (PRD F3).
+
+Design (src/Processor/WeakAppHandler.Processor.{Domain,Application,Infrastructure}/...):
+  - IngestionRecorder.RecordAttemptAsync/RecordReadingsAsync both funnel through one RecordAsync:
+    check processed_messages for the message id, and if absent open a transaction, insert the
+    ledger row, run the message-specific persist delegate, then commit. A DbUpdateException whose
+    inner exception is a Postgres unique-violation is caught and the transaction rolled back before
+    anything else touches the connection (Postgres refuses further commands on an aborted
+    transaction); the ledger is re-checked afterward - present means a genuine concurrent redelivery
+    (report Duplicate), absent means the violation was on ingest_batches' own primary key (the two
+    consumers of one batch racing to insert its row) and is rethrown so MassTransit's retry policy
+    re-runs the consumer, which now finds the row and updates it instead of inserting.
+  - ChangeTracker.Clear() in a finally when the transaction did not commit, because MassTransit can
+    retry a faulted message on the same DbContext scope - without clearing, the retry's Add of the
+    same ledger row would throw on the tracker before it ever reached the database.
+  - The two messages of one poll attempt share one ingest_batches row and can arrive in either
+    order: whichever lands first inserts a provisional row (ApplyReadingsAsync's has no HTTP status
+    or final outcome to give it; ApplyAttemptAsync's is already authoritative), and the attempt
+    record - the only one that knows the real outcome - overwrites outcome/http_status/duration_ms/
+    error_message whichever way the messages arrived. IngestBatch's properties changed from init to
+    set to allow this overwrite.
+  - IReadingBatchWriter is the seam TASK-019/020 fill in with real normalisation; this task's
+    NoOpReadingBatchWriter only exists so the message path has something to call.
+  - Program.cs: replaced the placeholder Worker.cs with AddServiceMassTransit wiring both consumers
+    onto the shipped ReadingsTopology queues/routing keys (same AddReadingsReceiveEndpoint helper
+    TASK-012 built), and appsettings.json gained the RabbitMq config block ServiceMassTransitExtensions
+    reads.
+
+Testing - two layers, because a defect here can live in either the recorder or its wiring to the bus:
+  - IngestionRecorderTests (6, calling IngestionRecorder directly against the real Postgres
+    container): a redelivered ReadingsIngested writes one batch and never reaches the writer a
+    second time; a redelivered IngestAttemptRecorded writes one row; a [Theory] over all five failed
+    outcomes proves reading_count=0 and no readings; a writer that saves one reading and then throws
+    halfway through leaves NEITHER the batch NOR the ledger row behind (proving the rollback, not
+    just that nothing was attempted) and a subsequent clean retry of the same message succeeds; and
+    readings-then-attempt ordering ends with one row whose duration_ms is the attempt's, not the
+    readings message's provisional value.
+  - IngestionConsumerTests (2, over a REAL RabbitMQ broker via the shared IntegrationTestFixture, per-
+    test vhost): boots the Processor the way Program.cs does - same AddProcessorInfrastructure, same
+    consumers on the same receive endpoints - with only the reading writer substituted, and publishes
+    through the bus rather than calling the recorder, so a consumer left unregistered would fail
+    these and pass the recorder-level tests just as happily.
+
+One real defect found only by driving this through a bus rather than the recorder directly:
+MassTransit's in-memory ITestHarness's InactivityTask is not reusable as a per-publish barrier - it
+resolves once when the harness first goes idle, and awaiting it again after a second publish returns
+immediately without waiting for that second delivery, so a duplicate-delivery test using it races
+ahead of the very redelivery it means to observe (the assertion saw 1 consumed message where 2 were
+expected, despite the recorder-level idempotency logic being entirely correct). Replaced with the
+real broker plus ConsumeCounter, an IConsumeObserver that counts PostConsume by the message's own
+domain MessageId and a WaitForConsumeCountAsync that polls until a specific count is reached with a
+timeout - a deterministic wait tied to what actually happened rather than to the bus's overall
+idleness. ProcessorHost (the real-Program.cs-wiring host) and ConsumeCounter were left in place from
+the killed prior iteration that had already reached for this exact fix; only the test host and test
+class built against the in-memory harness were replaced.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 69/69 passed across all test assemblies (Docker
+Desktop running; Testcontainers PostgreSQL + RabbitMQ).
+  - tasks.json: TASK-018 status -> "done".
+
+NEXT: TASK-019 (critical, now unblocked) is the natural follow-up - it and TASK-020 are what fill in
+IReadingBatchWriter with real meter/reading normalisation in place of this task's NoOpReadingBatchWriter,
+which is the seam this task built specifically for that purpose.
