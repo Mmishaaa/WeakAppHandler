@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using WeakAppHandler.Processor.Application.Ingestion;
+using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
 
 namespace WeakAppHandler.Processor.Infrastructure;
@@ -20,6 +23,13 @@ public static class ProcessorInfrastructureServiceCollectionExtensions
             .UseSnakeCaseNamingConvention());
 
         services.AddHealthChecks().AddDbContextCheck<CoreDbContext>(tags: ["ready"]);
+
+        services.TryAddSingleton(TimeProvider.System);
+
+        // Scoped, like the DbContext they share: a consumer resolves one recorder per delivery, and
+        // the transaction it opens lives and dies inside that delivery's scope.
+        services.TryAddScoped<IReadingBatchWriter, NoOpReadingBatchWriter>();
+        services.TryAddScoped<IngestionRecorder>();
 
         return services;
     }
