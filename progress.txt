@@ -1672,3 +1672,85 @@ Desktop running; Testcontainers PostgreSQL + RabbitMQ).
 NEXT: TASK-019 (critical, now unblocked) is the natural follow-up - it and TASK-020 are what fill in
 IReadingBatchWriter with real meter/reading normalisation in place of this task's NoOpReadingBatchWriter,
 which is the seam this task built specifically for that purpose.
+
+[2026-09-01] TASK-019 - DONE
+Processor: meter auto-registration + payload normalisation into flat readings rows (PRD §6 F3).
+Picked this over the other newly-unblocked tasks (TASK-017 admin REST, TASK-021 processing stats,
+TASK-027 Notification schema) because it's the only remaining critical-priority task with satisfied
+dependencies, and it fills the IReadingBatchWriter seam TASK-018 built specifically for it.
+
+Design (src/Processor/WeakAppHandler.Processor.{Application,Infrastructure}/Ingestion/):
+  - `PayloadNormalizer` (Application, pure/IO-free) - a flat `Dictionary<string,string>` mapping
+    WeakApp's wire field names to `readings.metric_code` (energy/co2/pm25/humidity all identity,
+    motionDetected -> motion_detected), and a `Normalize(payloadJson)` that parses the payload with
+    `JsonDocument` and returns one `NormalizedMetricValue(MetricCode, ValueNumeric, ValueBool)` per
+    recognised field. One flat table rather than one per meter type is safe because none of the
+    observed field names collide across types (docs/weakapp-observed-response.json). Numeric vs.
+    boolean is read straight off the JSON value's own `JsonValueKind` (True/False vs Number) rather
+    than cross-checked against `metrics.value_kind`, keeping this normaliser self-contained - no DB
+    round trip needed to classify a value. An unmapped field is skipped, not fatal: one stray field
+    in an otherwise well-formed payload must not lose the rest of a meter's real readings.
+  - `MeterReadingBatchWriter` (Infrastructure) - the real `IReadingBatchWriter`, replacing TASK-018's
+    `NoOpReadingBatchWriter` (deleted). Per envelope: resolve-or-create the `Meter` by the natural key
+    (location, meterType) - an in-call `Dictionary` cache avoids re-querying a meter seen earlier in
+    the same batch (which would miss it, since it isn't saved yet, and insert a duplicate against the
+    unique index) - then run `PayloadNormalizer.Normalize` and add one `Reading` per value, all
+    sharing the batch's `observedAt` and `batchId`. A brand-new meter gets `FirstSeenAt =
+    LastSeenAt = observedAt`; an existing one only has `LastSeenAt` advanced - this write-through-if-
+    resolved-fresh, no-op-if-cached-in-this-call design is what makes "last_seen_at updates on every
+    successful poll containing this meter" (criterion 2) hold without a second query.
+  - `readings.is_changed` is written as `true` unconditionally for every row here - deliberately not
+    this task's job. Comparing a new value against `meter_current_state` and publishing
+    `ReadingStored` is TASK-020's own subject; TASK-018's own `TestReadingBatchWriter` test stand-in
+    already made the identical placeholder choice for the same reason, so this isn't a new corner
+    cut, just the same one restated in the real writer.
+  - `IReadingBatchWriter`'s remarks doc and `ProcessorInfrastructureServiceCollectionExtensions`'s
+    `TryAddScoped` registration were updated to point at `MeterReadingBatchWriter` instead of the
+    deleted no-op.
+
+Testing - two layers, split the same way TASK-018's did (pure logic vs. real database):
+  - `PayloadNormalizerTests` (5, pure, no DB): air_quality's three fields map with correct numeric
+    values; a `[Theory]` over both motionDetected booleans confirms the motion_detected rename;
+    energy's single numeric field; an unmapped field alongside a known one is silently dropped
+    without losing the known one; an empty payload object returns no values.
+  - `MeterReadingBatchWriterTests` (3, real PostgreSQL via the shared `IntegrationTestFixture`,
+    exactly TASK-019's three acceptance criteria): an unknown (location, meterType) auto-registers a
+    `meters` row with `FirstSeenAt == LastSeenAt == observedAt`; a second poll for the same meter -
+    using a **second, freshly-constructed** `MeterReadingBatchWriter` instance, matching production
+    where `IReadingBatchWriter` is resolved scoped once per message delivery rather than reused
+    across polls - advances `LastSeenAt` without a second `meters` row; an air_quality payload
+    produces exactly 3 `readings` rows sharing one `observedAt` with the right metric codes and
+    values. Each test inserts its own `ingest_batches` row first (`CreateBatchAsync` helper) because
+    `readings.batch_id` is a real foreign key and, unlike `IngestionRecorderTests`, these tests call
+    the writer directly rather than going through `IngestionRecorder` (which normally inserts that
+    row first).
+
+TWO real defects the tests caught, not just scaffolding friction:
+  1. CA1859 on `PayloadNormalizer`'s static field: had to be declared as the concrete
+     `Dictionary<string,string>` rather than `IReadOnlyDictionary<string,string>` - the analyzer
+     flags the interface-typed field itself as a performance issue (devirtualized dictionary access),
+     not just interface-typed *parameters* as in earlier tasks' notes.
+  2. `DateTimeOffset.UtcNow` round-tripped through Postgres and back was NOT exactly equal to the
+     original value in two tests - `timestamptz` has microsecond resolution but .NET's high-resolution
+     clock produces sub-tick-of-a-microsecond remainders on this machine, so Npgsql silently drops a
+     few hundred nanoseconds on write. `Assert.Equal(observedAt, meter.LastSeenAt)` failed by under
+     500ns despite the writer's logic being correct. Fixed by truncating test-side timestamps to
+     microsecond precision before use (`TruncateToMicroseconds` helper), not by loosening the writer
+     or changing column precision - this is a test-fixture-vs-real-clock artifact, not a product bug,
+     and worth remembering for any future test asserting exact equality on a `DateTimeOffset` that
+     round-tripped through this database.
+
+VERIFIED: `dotnet build processor.slnf --no-incremental` -> 0 warnings/0 errors. `dotnet test
+processor.slnf` -> 23/23 passed (Docker Desktop running; Testcontainers PostgreSQL). `dotnet build
+WeakAppHandler.sln --no-incremental` -> 0 warnings/0 errors across all 21 projects. `dotnet test
+WeakAppHandler.sln` -> 78/78 passed across all six test assemblies (Contracts.Tests 7,
+ServiceDefaults.Tests 8, Ingestor.Tests 21, Auth.Tests 15, Messaging.Tests 4,
+Processor.Infrastructure.Tests 23). No frontend exists yet, so `npm` checks do not apply.
+  - tasks.json: TASK-019 status -> "done".
+
+NEXT: TASK-020 (critical, now unblocked) is the natural follow-up - it fills in the one piece this
+task deliberately left as a placeholder: compare each new value against `meter_current_state`
+(setting `readings.is_changed` for real instead of always `true`), upsert `meter_current_state`
+itself, and publish `ReadingStored` with value/previousValue/isChanged for the Notification service's
+rule engine to consume later. TASK-017 (Ingestor admin REST) and TASK-021 (Processor /stats REST) are
+the other unblocked tasks but are both lower priority (high/medium) and independent of this chain.

@@ -367,7 +367,7 @@
         "Шаг 3: Отправить air_quality payload — проверить наличие трёх строк readings с общим observed_at"
       ],
       "dependencies": ["TASK-018"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-020",

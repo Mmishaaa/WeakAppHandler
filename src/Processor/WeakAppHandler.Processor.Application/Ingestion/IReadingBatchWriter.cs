@@ -9,10 +9,10 @@ namespace WeakAppHandler.Processor.Application.Ingestion;
 /// </summary>
 /// <remarks>
 /// The seam exists because normalisation itself — meter auto-registration, payload flattening into
-/// one row per metric, change detection against <c>meter_current_state</c> — is F3's own subject
-/// and is built in TASK-019/TASK-020. Until then <c>NoOpReadingBatchWriter</c> stands in, so the
-/// batch bookkeeping and the idempotency ledger this task owns can be finished, exercised and
-/// tested without pre-empting how readings get shaped.
+/// one row per metric, change detection against <c>meter_current_state</c> — is F3's own subject.
+/// <c>MeterReadingBatchWriter</c> (TASK-019) implements meter registration and payload flattening;
+/// comparing values against <c>meter_current_state</c> and publishing
+/// <c>ReadingStored</c> is still TASK-020's.
 /// </remarks>
 public interface IReadingBatchWriter
 {
