@@ -7,7 +7,12 @@
       "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
       "src\\Gateway\\WeakAppHandler.Gateway.Application\\WeakAppHandler.Gateway.Application.csproj",
       "src\\Gateway\\WeakAppHandler.Gateway.Infrastructure\\WeakAppHandler.Gateway.Infrastructure.csproj",
-      "src\\Gateway\\WeakAppHandler.Gateway.Api\\WeakAppHandler.Gateway.Api.csproj"
+      "src\\Gateway\\WeakAppHandler.Gateway.Api\\WeakAppHandler.Gateway.Api.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Domain\\WeakAppHandler.Processor.Domain.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Application\\WeakAppHandler.Processor.Application.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Infrastructure\\WeakAppHandler.Processor.Infrastructure.csproj",
+      "tests\\Shared\\WeakAppHandler.IntegrationTesting\\WeakAppHandler.IntegrationTesting.csproj",
+      "tests\\WeakAppHandler.Gateway.Api.Tests\\WeakAppHandler.Gateway.Api.Tests.csproj"
     ]
   }
 }
