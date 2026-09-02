@@ -2824,3 +2824,159 @@ unblocked.
 
 TASK-024 (Gateway aggregations) remains the other unblocked "high"-priority task if a future session
 finds this branch's blocker still unresolved and wants independent work to pick up instead.
+
+[2026-09-02] TASK-024 - DONE
+Gateway: aggregations query bucketing readings via SQL date_trunc/generate_series, grouped by
+location/meterType/metric, with every bucket in range present even when empty (PRD F4). This clears
+the last unblocked critical/high-priority task in the backlog.
+
+Picked over the other unblocked tasks (TASK-021/TASK-030/TASK-033, all medium priority) because
+it's the only unblocked "high"-priority task, per the previous entry's own note. Created branch
+`task/task-024-gateway-aggregations` from up-to-date `main` (confirmed clean, `git status`/`git log`
+both worked at the very start of this session, before the shell tool died - see blocker below).
+
+Explored the existing TASK-023 Gateway code first (Query.cs / GatewayReadContext.cs /
+GatewayReadDbContext.cs / IGatewayReadContext.cs / entity+configuration classes / the
+ProcessorSchemaSeed-based integration test harness / SchemaSnapshotTests' drift-check mechanism) via
+a research subagent plus direct reads, to match its conventions exactly rather than inventing a
+different shape. Confirmed via grep that no `FromSqlRaw`/`FromSqlInterpolated`/`date_trunc`/
+`generate_series` usage exists anywhere in `src/` yet - this task is the first raw-SQL query in the
+codebase, so there was no existing pattern to copy, only EF Core/Npgsql conventions to follow.
+
+Design decisions (none of these are stated explicitly in PRD.md or tasks.json - documented here so
+the next iteration doesn't have to re-derive them):
+  - `aggregations(metricCode: String!, bucket: AggregationBucketSize!, from: DateTime!, to: DateTime!,
+    location: String, meterType: String): [AggregationBucketReadModel!]!` - metricCode is mandatory
+    (averaging/summing across different metrics, e.g. energy+co2, in one bucket makes no numeric
+    sense), location/meterType are optional filters. Grouping is always by (location, meterType,
+    bucketStart) - one row per meter-type-per-location-per-bucket, not per individual meter (matches
+    the acceptance-criterion phrasing "grouped by location... returns exactly 24 buckets per
+    location").
+  - Empty-bucket semantics (genuinely unspecified in PRD F4/tasks.json, flagged explicitly by the
+    research subagent as a gap): `count = 0` (non-nullable int) with `avg`/`min`/`max`/`sum` all
+    `null` for a bucket with zero matching readings - chosen for consistency with how
+    `ReadingReadModel.ValueNumeric`/`MeterCurrentValueReadModel` already represent "no value" as
+    `decimal?` rather than `0` elsewhere in this codebase. If a reviewer wants `0` instead of `null`
+    for avg/min/max/sum, that's a one-line change to the `AggregationBucketReadModel` mapping in
+    `GatewayReadContext.GetAggregationsAsync`, not a redesign.
+  - "Buckets with zero readings represented explicitly" is implemented as: `series` CTE = every
+    distinct (location, meterType) pair from `meters` matching the location/meterType filters (NOT
+    filtered by whether that meter ever reported `metricCode` - a meter that never reported the
+    requested metric still gets a full run of zero-count buckets, which is the more literal reading
+    of "explicitly represented" than silently omitting it); `buckets` CTE = `generate_series` over
+    every bucket boundary in `[from, to)` using `date_trunc(unit, ...)` for alignment and
+    `date_trunc(unit, to - interval '1 microsecond')` for the inclusive upper bound of
+    `generate_series` (needed because `generate_series`'s end is inclusive, so without the
+    microsecond subtraction a `to` that lands exactly on a bucket boundary would produce one bucket
+    too many - e.g. a `[T, T+24h)` window would generate 25 hourly buckets instead of 24). `agg` CTE =
+    the actual `GROUP BY m.location, m.meter_type, date_trunc(unit, r.observed_at)` over `readings`
+    joined to `meters`. Final `SELECT` cross-joins `series x buckets` and `LEFT JOIN`s `agg`, so a
+    bucket with no matching rows surfaces as `COALESCE(..., 0)`/`NULL` instead of being absent from
+    the result set - all bucketing/grouping/zero-fill happens in one SQL statement (no client-side
+    grouping after `.ToList()`), which is exactly what tasks.json's own test_steps step 2 asks to
+    verify.
+  - Implemented via `FromSqlInterpolated` (not `FromSqlRaw`) against a new keyless entity type
+    `AggregationBucketRowEntity` (`Persistence/Entities/`, configured via
+    `AggregationBucketRowEntityConfiguration` with `HasNoKey()` + `ToView(null)`, registered on
+    `GatewayReadDbContext` the same explicit one-by-one way as every other entity in that context -
+    the file's own comment already documents *why* it's not `ApplyConfigurationsFromAssembly`, see
+    that comment before changing this). `date_trunc`'s unit argument and `generate_series`'s step are
+    both passed as ordinary interpolated (therefore parameterized, not concatenated) string values -
+    Postgres accepts `date_trunc($1, ...)` and `($1)::interval` with a bound text parameter, so this
+    does not reopen any SQL-injection surface despite being the first raw-SQL query in the codebase.
+    `IGatewayReadContext.GetAggregationsAsync` is a method, not an `IQueryable` property (matching the
+    existing `GetCurrentValuesAsync` precedent), since HotChocolate's `[UseProjection]`/`[UseFiltering]`
+    pipeline has nothing meaningful to compose onto a query whose shape (bucket count, grouping) is
+    already fully determined by its own arguments.
+  - `AggregationBucketSize` enum (`Minute`/`Hour`/`Day`) lives in
+    `Gateway.Application/Readings/AggregationBucketSize.cs`, following the same
+    `Application/<Feature>/<Enum>.cs` placement as `AlertSeverity`/`AlertOperator`/`AlertStatus` in
+    `Application/Alerting/`. HotChocolate will render this as `enum AggregationBucketSize { MINUTE
+    HOUR DAY }` in the schema (SCREAMING_SNAKE_CASE), matching how `AlertSeverity`/`AlertOperator`
+    already render.
+
+Files added:
+  - `src/Gateway/WeakAppHandler.Gateway.Application/Readings/AggregationBucketSize.cs`
+  - `src/Gateway/WeakAppHandler.Gateway.Application/Readings/AggregationBucketReadModel.cs`
+  - `src/Gateway/WeakAppHandler.Gateway.Infrastructure/Persistence/Entities/AggregationBucketRowEntity.cs`
+  - `src/Gateway/WeakAppHandler.Gateway.Infrastructure/Persistence/Configurations/AggregationBucketRowEntityConfiguration.cs`
+Files edited:
+  - `IGatewayReadContext.cs` - added `GetAggregationsAsync` to the interface.
+  - `GatewayReadDbContext.cs` - added the `AggregationBucketRows` DbSet + applied the new
+    configuration.
+  - `GatewayReadContext.cs` - added the `BucketDefinitions` lookup + the full `GetAggregationsAsync`
+    implementation (the `FromSqlInterpolated` query described above).
+  - `Query.cs` - added the `GetAggregations` resolver method; also updated its class-level doc
+    comment, which explicitly called out `aggregations`/`ingestionStatus` as "not yet built" - now
+    only mentions `ingestionStatus` (TASK-026, still pending).
+
+NOT YET DONE (blocked - see below, this is genuinely the only reason status is still "pending"):
+  - No test file was written yet (`tests/WeakAppHandler.Gateway.Api.Tests/AggregationsQueryTests.cs`
+    does not exist). The intended test, following `ReadingsQueryTests.cs`'s exact shape
+    (`ProcessorSchemaSeed` + a real Postgres/RabbitMQ Testcontainers fixture + a raw GraphQL query
+    string via `GraphQlClient.PostAsync`), should assert: (a) a 24-hour window with hourly buckets for
+    a seeded location returns exactly 24 buckets, including ones with zero seeded readings in that
+    hour (the task's own acceptance criterion 1); (b) the numeric avg/min/max/sum for a bucket with
+    known seeded values matches a hand-computed expectation (acceptance criterion 3); (c) a
+    location/meterType filter narrows the `series` CTE correctly.
+
+Picked up from an iteration whose shell tool died before it could build, test, or reach git even
+once - everything above this paragraph is that iteration's own design record, preserved as-is.
+Finishing it required real debugging, not just running the plan it left: the design itself was
+sound, but the raw SQL had two genuine Postgres bugs neither `dotnet build` nor a code review would
+catch, only `dotnet test` against a real database.
+
+TWO REAL BUGS FOUND AND FIXED, both specific to `FromSqlInterpolated`'s parameter binding rather than
+to anything about aggregation logic itself:
+  1. `GROUP BY m.location, m.meter_type, date_trunc({unit}, r.observed_at)` failed with Postgres error
+     42803 ("column ... must appear in the GROUP BY clause") even though the identical expression
+     appeared in the SELECT list. Cause: `FromSqlInterpolated` binds every occurrence of an
+     interpolated hole to its OWN parameter - so the SELECT list's `date_trunc({unit}, ...)` and the
+     GROUP BY's textually-identical `date_trunc({unit}, ...)` compile to two DIFFERENT parameter
+     placeholders bound to the same value at runtime, which Postgres's parser cannot prove equal
+     during validation. Fixed by grouping on the SELECT list's own `bucket_start` alias instead of
+     repeating the expression - Postgres allows GROUP BY to reference an output alias for exactly
+     this reason.
+  2. `({location} IS NULL OR m.location = {location})` failed with Postgres error 42P18 ("could not
+     determine data type of parameter"). The `= {location}` branch gives its own parameter occurrence
+     a type from context (matching `m.location`), but the bare `{location} IS NULL` branch's SEPARATE
+     parameter occurrence has no adjacent expression to borrow a type from, and Postgres's
+     prepared-statement protocol requires every parameter's type resolved before execution. Fixed by
+     casting explicitly: `{location}::text IS NULL`. Applied to both the `location` and `meterType`
+     null-checks, in both the `series` and `agg` CTEs (four occurrences total).
+  Neither bug is specific to this codebase - both are well-known EF Core/Npgsql `FromSqlInterpolated`
+  gotchas that only surface against a real Postgres server, which is exactly why TASK-014's Testcontainers
+  harness exists rather than an in-memory provider standing in for one.
+
+Also: renamed the interface's `to` parameter to `until` (kept `Query.GetAggregations`'s own public
+GraphQL argument as `to`, which CA1716 does not flag on a non-virtual/non-interface member) - CA1716
+rejected `to` as a parameter name on `IGatewayReadContext.GetAggregationsAsync` because it collides
+with a reserved keyword in some .NET languages. `ProcessorSchemaSeed` gained two new seed helpers
+(`SeedMeterAsync` for a bare meter, `AddReadingAsync` for one reading at an exact instant/value) since
+the existing "N readings one minute apart from an anchor" helper could not place readings in specific
+hour buckets. Metric codes in the new tests are fixed to the five real ones (`readings.metric_code`
+has a foreign key onto Processor's `metrics` lookup table - it cannot take an arbitrary per-test code
+the way Notification's alerting schema can); isolation between concurrently-running Facts instead
+comes from each test's own unique location, always passed through the query's own `location` filter.
+
+Testing - 3 new tests in `AggregationsQueryTests.cs`: a 24-hour window with hourly buckets returns
+exactly 24 buckets including empty ones (count 0, avg/min/max/sum null) for hours with no readings
+(acceptance criterion 1); three known values (10/20/30) in one bucket produce avg 20/min 10/max 30/
+sum 60/count 3, matching hand arithmetic (acceptance criterion 3); a location filter excludes another
+location's own (location, meterType) row from the result entirely, not merely from the assertions.
+Test step 2 ("review the generated SQL to confirm no client-side grouping") is satisfied structurally
+rather than by an assertion, documented on the test class: `GetAggregationsAsync` pipes
+`FromSqlInterpolated` directly into `ToListAsync`, so there is no LINQ `GroupBy` step to review.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 195/195 passed across all nine test assemblies (Docker
+Desktop running; Testcontainers PostgreSQL + RabbitMQ). The Gateway assembly (19 tests, up from 16)
+and the aggregations tests specifically were each run three times for stability given the two subtle
+SQL bugs just fixed. `schema.graphql` regenerated via `SchemaSnapshotTests`' own `.received`-file
+mechanism and reviewed before committing - the diff is exactly the new `aggregations` field,
+`AggregationBucketReadModel` type and `AggregationBucketSize` enum, nothing else moved.
+  - tasks.json: TASK-024 status -> "done".
+
+NEXT: no critical- or high-priority task remains unblocked - this was the last one. TASK-007,
+TASK-021, TASK-030 (alert-rule admin CRUD) and TASK-033 (frontend toolchain) are all medium-priority
+and unblocked; TASK-033 starts the entirely new M5 frontend milestone and is the largest of the four.

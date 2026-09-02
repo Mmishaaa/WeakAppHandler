@@ -6,8 +6,8 @@ using WeakAppHandler.Gateway.Application.Readings;
 namespace WeakAppHandler.Gateway.Api.GraphQL;
 
 /// <summary>
-/// The Gateway's GraphQL root query type (PRD F4). <c>aggregations</c>/<c>ingestionStatus</c> belong
-/// to later tasks (TASK-024/026) that have not built their read models yet.
+/// The Gateway's GraphQL root query type (PRD F4). <c>ingestionStatus</c> belongs to a later task
+/// (TASK-026) that has not built its read model yet.
 /// </summary>
 public sealed class Query
 {
@@ -47,4 +47,20 @@ public sealed class Query
     [UseSorting]
     public IQueryable<AlertRuleReadModel> GetAlertRules([Service] IGatewayAlertingReadContext context) =>
         context.AlertRules;
+
+    /// <summary>
+    /// Bucketed aggregates (avg/min/max/sum/count) of one metric's readings over
+    /// [<paramref name="from"/>, <paramref name="to"/>), grouped by location/meter type and time
+    /// bucket, with every bucket in range present even when no reading fell into it (PRD F4).
+    /// </summary>
+    public Task<IReadOnlyList<AggregationBucketReadModel>> GetAggregations(
+        string metricCode,
+        AggregationBucketSize bucket,
+        DateTimeOffset from,
+        DateTimeOffset to,
+        [Service] IGatewayReadContext context,
+        string? location = null,
+        string? meterType = null,
+        CancellationToken cancellationToken = default) =>
+        context.GetAggregationsAsync(metricCode, bucket, from, to, location, meterType, cancellationToken);
 }

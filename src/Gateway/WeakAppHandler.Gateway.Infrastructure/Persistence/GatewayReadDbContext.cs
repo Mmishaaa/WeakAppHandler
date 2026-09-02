@@ -17,6 +17,8 @@ public sealed class GatewayReadDbContext(DbContextOptions<GatewayReadDbContext> 
 
     public DbSet<MeterCurrentStateEntity> MeterCurrentStates => Set<MeterCurrentStateEntity>();
 
+    public DbSet<AggregationBucketRowEntity> AggregationBucketRows => Set<AggregationBucketRowEntity>();
+
     // Applied one by one rather than via ApplyConfigurationsFromAssembly: since TASK-032 added a
     // second read-only DbContext (GatewayAlertingReadDbContext) to this same assembly, an
     // assembly-wide scan would pull that context's alerting configurations into this context's
@@ -27,6 +29,7 @@ public sealed class GatewayReadDbContext(DbContextOptions<GatewayReadDbContext> 
         modelBuilder.ApplyConfiguration(new MeterEntityConfiguration());
         modelBuilder.ApplyConfiguration(new ReadingEntityConfiguration());
         modelBuilder.ApplyConfiguration(new MeterCurrentStateEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new AggregationBucketRowEntityConfiguration());
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>

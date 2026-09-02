@@ -52,10 +52,29 @@ type Query {
     where: AlertRuleReadModelFilterInput @cost(weight: "10")
     order: [AlertRuleReadModelSortInput!] @cost(weight: "10")
   ): [AlertRuleReadModel!]! @cost(weight: "10")
+  aggregations(
+    metricCode: String!
+    bucket: AggregationBucketSize!
+    from: DateTime!
+    to: DateTime!
+    location: String
+    meterType: String
+  ): [AggregationBucketReadModel!]! @cost(weight: "10")
 }
 
 type Subscription {
   onReadingStored(location: String, meterType: String): ReadingStoredPayload!
+}
+
+type AggregationBucketReadModel {
+  bucketStart: DateTime!
+  location: String!
+  meterType: String!
+  avg: Decimal
+  min: Decimal
+  max: Decimal
+  sum: Decimal
+  count: Int!
 }
 
 type AlertReadModel {
@@ -416,6 +435,12 @@ input UuidOperationFilterInput {
   nlt: UUID @cost(weight: "10")
   lte: UUID @cost(weight: "10")
   nlte: UUID @cost(weight: "10")
+}
+
+enum AggregationBucketSize {
+  MINUTE
+  HOUR
+  DAY
 }
 
 enum AlertOperator {

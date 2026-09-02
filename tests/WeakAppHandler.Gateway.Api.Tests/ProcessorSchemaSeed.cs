@@ -107,6 +107,59 @@ internal static class ProcessorSchemaSeed
         await context.SaveChangesAsync();
     }
 
+    /// <summary>A bare meter with no readings, e.g. to build up an exact set of readings at chosen instants/values afterward.</summary>
+    public static async Task<Guid> SeedMeterAsync(
+        CoreDbContext context,
+        string location,
+        string meterType,
+        DateTimeOffset firstSeenAt)
+    {
+        var meter = new Meter
+        {
+            Id = Guid.NewGuid(),
+            Location = location,
+            MeterType = meterType,
+            FirstSeenAt = firstSeenAt,
+            LastSeenAt = firstSeenAt,
+        };
+        context.Meters.Add(meter);
+
+        await context.SaveChangesAsync();
+
+        return meter.Id;
+    }
+
+    /// <summary>One reading at an exact instant and value, e.g. to place a known set of readings across specific hour buckets for an aggregation test.</summary>
+    public static async Task AddReadingAsync(
+        CoreDbContext context,
+        Guid meterId,
+        string metricCode,
+        decimal valueNumeric,
+        DateTimeOffset observedAt)
+    {
+        var batch = new IngestBatch
+        {
+            Id = Guid.NewGuid(),
+            FetchedAt = observedAt,
+            Outcome = IngestBatchOutcome.Success,
+            DurationMs = 50,
+            ReadingCount = 1,
+        };
+        context.IngestBatches.Add(batch);
+
+        context.Readings.Add(new Reading
+        {
+            MeterId = meterId,
+            MetricCode = metricCode,
+            ObservedAt = observedAt,
+            ValueNumeric = valueNumeric,
+            IsChanged = true,
+            BatchId = batch.Id,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
     public static async Task SeedCurrentValueAsync(
         CoreDbContext context,
         Guid meterId,

@@ -20,4 +20,26 @@ public interface IGatewayReadContext
     public Task<IReadOnlyList<MeterCurrentValueReadModel>> GetCurrentValuesAsync(
         IReadOnlyList<Guid> meterIds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Buckets <paramref name="metricCode"/>'s readings into fixed-size time windows covering
+    /// [<paramref name="from"/>, <paramref name="until"/>), one row per (location, meterType, bucket)
+    /// combination - including buckets with no readings at all (PRD F4). A method rather than an
+    /// <c>IQueryable</c>: bucket generation and the zero-fill join are expressed in a single SQL
+    /// statement (<c>generate_series</c> + <c>date_trunc</c> + <c>GROUP BY</c>), not composed
+    /// in-memory or built up by chaining further LINQ onto the result.
+    /// </summary>
+    /// <remarks>
+    /// The upper bound isn't named <c>to</c> — a reserved keyword in some .NET languages (CA1716) —
+    /// on a public interface member, matching the same <c>since</c>/<c>until</c> naming this
+    /// codebase's <c>readings</c> query already uses for a time range in its GraphQL variables.
+    /// </remarks>
+    public Task<IReadOnlyList<AggregationBucketReadModel>> GetAggregationsAsync(
+        string metricCode,
+        AggregationBucketSize bucket,
+        DateTimeOffset from,
+        DateTimeOffset until,
+        string? location,
+        string? meterType,
+        CancellationToken cancellationToken);
 }
