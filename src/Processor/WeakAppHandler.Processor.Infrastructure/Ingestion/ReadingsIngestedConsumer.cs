@@ -1,5 +1,6 @@
 using MassTransit;
 using WeakAppHandler.Contracts;
+using WeakAppHandler.Processor.Application.Stats;
 
 namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 
@@ -8,12 +9,16 @@ namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 /// acknowledged and discarded rather than faulted, which is what keeps at-least-once delivery from
 /// producing duplicate rows (PRD §6 F3).
 /// </summary>
-public sealed class ReadingsIngestedConsumer(IngestionRecorder recorder) : IConsumer<ReadingsIngested>
+public sealed class ReadingsIngestedConsumer(IngestionRecorder recorder, ProcessingStatsState stats)
+    : IConsumer<ReadingsIngested>
 {
     public async Task Consume(ConsumeContext<ReadingsIngested> context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        await recorder.RecordReadingsAsync(context.Message, context.CancellationToken).ConfigureAwait(false);
+        var result = await recorder.RecordReadingsAsync(context.Message, context.CancellationToken)
+            .ConfigureAwait(false);
+
+        stats.RecordResult(result);
     }
 }

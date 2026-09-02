@@ -47,6 +47,12 @@ public sealed class IngestionConsumerTests(IntegrationTestFixture fixture)
             Assert.Equal(IngestBatchOutcome.Success, batch.Outcome);
             Assert.Equal(2, batch.ReadingCount);
             Assert.Equal(2, await context.Readings.CountAsync(r => r.BatchId == batchId));
+
+            // TASK-021: the first delivery is a new record, the second a redelivery the recorder's
+            // idempotency check already rejected above.
+            var stats = host.Stats.Snapshot();
+            Assert.Equal(1, stats.Processed);
+            Assert.Equal(1, stats.Deduplicated);
         }
         finally
         {
@@ -121,6 +127,9 @@ public sealed class IngestionConsumerTests(IntegrationTestFixture fixture)
             Assert.Equal(503, batch.HttpStatus);
             Assert.Equal(0, batch.ReadingCount);
             Assert.False(await context.Readings.AnyAsync(r => r.BatchId == batchId));
+
+            // TASK-021: a failed attempt is still a newly recorded message, not a duplicate.
+            Assert.Equal(1, host.Stats.Snapshot().Processed);
         }
         finally
         {
