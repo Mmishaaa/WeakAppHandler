@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.Ingestor.WeakApp;
 
@@ -16,7 +15,7 @@ namespace WeakAppHandler.Ingestor.Polling;
 /// </summary>
 internal sealed partial class IngestionWorker(
     IServiceScopeFactory scopeFactory,
-    IOptions<WeakAppOptions> options,
+    IngestionRuntimeState state,
     TimeProvider timeProvider,
     ILogger<IngestionWorker> logger) : BackgroundService
 {
@@ -24,15 +23,19 @@ internal sealed partial class IngestionWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var interval = TimeSpan.FromSeconds(options.Value.PollingIntervalSeconds);
         var scheduledTick = timeProvider.GetUtcNow();
 
-        LogStarted(logger, interval);
+        LogStarted(logger, state.PollingInterval);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             await RunOneCycleAsync(stoppingToken).ConfigureAwait(false);
 
+            // Re-read per cycle rather than captured once: PUT /api/v1/ingestion/config (TASK-017)
+            // can change the interval while the loop is running. A change therefore takes effect
+            // from the next cycle instead of cutting short the delay this one already committed to,
+            // which keeps the schedule a grid rather than something an admin request can jitter.
+            var interval = state.PollingInterval;
             var completedAt = timeProvider.GetUtcNow();
             scheduledTick = PollingSchedule.NextTick(scheduledTick, completedAt, interval, out var skippedCycles);
 

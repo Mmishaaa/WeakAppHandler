@@ -76,7 +76,7 @@ public sealed class IngestionWorkerTests
 
         var worker = new IngestionWorker(
             provider.GetRequiredService<IServiceScopeFactory>(),
-            options,
+            new IngestionRuntimeState(options),
             TimeProvider.System,
             NullLogger<IngestionWorker>.Instance);
 

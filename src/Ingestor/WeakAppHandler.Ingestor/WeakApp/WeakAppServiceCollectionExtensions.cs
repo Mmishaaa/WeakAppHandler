@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Polly.CircuitBreaker;
 
 namespace WeakAppHandler.Ingestor.WeakApp;
 
@@ -16,6 +17,10 @@ public static class WeakAppServiceCollectionExtensions
         builder.Services.AddSingleton<IValidateOptions<WeakAppOptions>, WeakAppOptionsValidator>();
         builder.Services.TryAddSingleton(TimeProvider.System);
 
+        // Singleton because the pipeline it gets attached to is built once and lives as long as the
+        // handler; the admin API resolves the same instance to report the breaker's current state.
+        builder.Services.TryAddSingleton<CircuitBreakerStateProvider>();
+
         return builder.Services
             .AddHttpClient<IWeakAppClient, WeakAppClient>((services, client) =>
             {
@@ -27,7 +32,9 @@ public static class WeakAppServiceCollectionExtensions
             {
                 var options = context.ServiceProvider.GetRequiredService<IOptions<WeakAppOptions>>().Value;
                 var timeProvider = context.ServiceProvider.GetRequiredService<TimeProvider>();
-                WeakAppResiliencePipelineFactory.Configure(pipelineBuilder, options, timeProvider);
+                var circuitBreakerState = context.ServiceProvider.GetRequiredService<CircuitBreakerStateProvider>();
+                WeakAppResiliencePipelineFactory.Configure(
+                    pipelineBuilder, options, timeProvider, circuitBreakerState);
             });
     }
 }

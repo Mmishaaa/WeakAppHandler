@@ -2035,3 +2035,101 @@ TASK-024 (Gateway aggregations query), TASK-025 (Gateway alerts/alertRules query
 all high-priority and unblocked - TASK-024/025 extend this same Gateway project and are the more
 natural continuation of this task's own work, but TASK-017 has been unblocked and waiting since
 TASK-016 (several iterations ago) and may be worth picking up first for that reason.
+
+[2026-09-02] TASK-017 - DONE
+Ingestor admin REST: GET /api/v1/ingestion/status, POST /trigger, PUT /config behind a machine JWT
+with scope ingestion:admin, plus the in-memory circuit-breaker/error-counter state they report
+(PRD §6 F1).
+
+Resumed from a killed iteration that had written exactly one thing: the ServicePolicies doc/constant
+for the new policy. Everything below is this session's work.
+
+The state TASK-016's note said did not exist yet (src/Ingestor/.../Polling/):
+  - IngestionRuntimeState (singleton): last attempt, failure counts BY OUTCOME, total polls, last
+    success instant, and the interval currently in force. Guarded by one lock and read through a
+    single Snapshot() rather than per-property getters, so a status response cannot report an
+    outcome from one attempt beside counters that already include the next.
+  - StateRecordingIngestionPoller: a decorator around IngestionPoller, registered as IIngestionPoller
+    so BOTH the timer loop and the admin trigger record through it and neither call site can forget.
+    A poll that throws is deliberately not counted - every outcome WeakApp can produce comes back as
+    an IngestAttemptRecorded, so an exception means the attempt died outside the pipeline and has no
+    outcome that any ingest_batches row will ever corroborate.
+  - IngestionWorker now re-reads the interval from that state each cycle instead of capturing it
+    once, which is what makes PUT /config effective; a change lands on the next cycle rather than
+    cutting short a delay already committed to.
+  - Circuit-breaker state is Polly's own: WeakAppResiliencePipelineFactory now takes a
+    CircuitBreakerStateProvider (registered singleton, attached to the breaker) and /status reads
+    CircuitState off the live pipeline. Deliberately not mirrored into IngestionRuntimeState via
+    OnOpened/OnClosed callbacks - a copy kept in step by events is only ever a stale second source
+    of truth. Note the provider can be attached to exactly one breaker, which is safe only because
+    the pipeline is built once per host; enabling options reloads would need one provider per build.
+  - PUT /config only moves the polling interval. The attempt/total timeouts and breaker thresholds
+    are what WeakAppOptionsValidator checks against each other at startup, so letting an admin move
+    one independently could put the pipeline's total budget above the interval. The interval itself
+    is validated against the same invariant (> total timeout) plus a 3600s ceiling, so a value in
+    milliseconds by mistake is a 400 rather than ingestion silently parked for weeks. In-memory by
+    design: a restart returns to configured values instead of keeping an override nobody remembers.
+
+A REAL DEFECT in the shared auth wiring, found because this is the first task where a service has to
+validate a token the Auth Service actually issued: ServiceAuthenticationExtensions configured
+JwtBearer with an Authority *or* a JwksUri, but never a ValidIssuer. Authority is unusable here (the
+Auth Service publishes JWKS but no OpenID discovery document, so there is no metadata to learn the
+issuer from), and with issuer validation on by default and no issuer configured, EVERY real token
+would have been rejected at runtime with IDX10204 - on every service, not just this one. Nothing had
+caught it because no service had yet been given a protected endpoint to call with a real token. Fixed
+by honouring an Auth:Issuer setting, and the Ingestor's appsettings.json now carries the full Auth
+section (Issuer/Audience/JwksUri/RequireHttpsMetadata) that services need.
+
+Also in ServiceDefaults:
+  - The IngestionAdmin policy checks scope membership rather than RequireClaim("scope", ...): OAuth2
+    puts every granted scope in ONE space-separated claim, so an exact-value match would reject a
+    token that carries any additional scope. RequireAuthenticatedUser() is explicit so a missing
+    token is a 401 challenge and a valid-but-unscoped one is a 403.
+  - JwksKeyCache now takes IHttpClientFactory instead of a "new HttpClient()" it held forever (a
+    singleton-held client never picks up a DNS change - the exact failure IHttpClientFactory exists
+    to prevent), creating a short-lived client per refresh over a pooled handler. This is also the
+    seam that lets a test route the JWKS fetch into an in-process Auth Service.
+  - DevBypass principals now carry a scope claim too (configurable, default ingestion:admin).
+    Without it the dev bypass would leave scope-based policies unreachable while role-based ones are
+    wide open, which is a confusing local-dev failure rather than a security boundary - the bypass
+    already authenticates every request as an admin.
+
+Testing - 7 new tests in tests/WeakAppHandler.Ingestor.Tests/IngestionAdminEndpointsTests.cs, run
+against BOTH real services (IngestorAdminHost boots the Ingestor via WebApplicationFactory over its
+own Program.cs, and the real Auth Service against the fixture's PostgreSQL):
+  - Tokens are minted by the REAL client-credentials grant, not hand-signed with a key the Ingestor
+    was told to trust - the latter proves only that a JWT validates, not that the two services agree
+    on issuer, audience, claim shape and key. The Ingestor then fetches the JWKS over HTTP from the
+    Auth Service through TestServer.CreateHandler, so signature validation resolves a key the Auth
+    Service really published; only the transport under that fetch is in-memory, because two in-process
+    test servers have no port to reach each other on.
+  - Only WeakApp itself is faked, and only at the HttpMessageHandler level (RecordingHandler), so the
+    REAL WeakAppClient and its REAL resilience pipeline stay in the request path. That is what makes
+    the circuit-breaker test meaningful: 502s drive the actual production breaker open and /status
+    then reports Open, rather than the test setting a flag the endpoint echoes back.
+  - Coverage: 401 without a token; 403 on all three routes for a valid VIEWER token (authentication
+    succeeds, authorization must still refuse a human's token on a machine surface); /trigger reaching
+    WeakApp again and answering with that batch's outcome in well under a second; /status reporting
+    the SCHEDULED poll's outcome, reading count, batch id, empty failure map, Closed breaker and the
+    interval in force; failures counted by reason with the breaker Open; PUT /config taking effect as
+    seen through /status; and an interval below the timeout budget rejected with 400 leaving the
+    interval unchanged.
+  - The Ingestor test collection now shares IntegrationTestFixture (PostgreSQL + RabbitMQ) instead of
+    the RabbitMQ fixture alone. The old comment "the Ingestor has no database, so PostgreSQL would be
+    setup with no test behind it" no longer holds: the Auth Service that guards this API does have one.
+    ingestor.slnf gained the Auth and IntegrationTesting projects to match.
+  - Ingestor Program.cs gained AddControllers/UseAuthentication/UseAuthorization/MapControllers, and
+    launchSettings an applicationUrl (5095) now that the service actually serves HTTP.
+
+VERIFIED: "dotnet build WeakAppHandler.sln" -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). "dotnet test WeakAppHandler.sln" -> 93/93 passed across all seven test assemblies. The
+Ingestor assembly (28 tests) was run four times in total - the new suite asserts on wall-clock
+latency and on a breaker opening, so repetition is the only thing that shows those are not flaky.
+  - tasks.json: TASK-017 status -> "done".
+
+NEXT: no critical-priority task remains unblocked. TASK-024 (Gateway aggregations query with
+date_trunc/generate_series bucketing) and TASK-025 are both high-priority and extend TASK-023's
+Gateway project, so they are the natural continuation; TASK-027 is the other high-priority one.
+Whoever takes TASK-024 should know the read-model lesson from TASK-023: HotChocolate's [UseProjection]
+needs a parameterless constructor on the projected type, so aggregation read models must be
+init-only-property records rather than positional ones.
