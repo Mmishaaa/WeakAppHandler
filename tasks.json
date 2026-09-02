@@ -331,7 +331,7 @@
         "Шаг 3: Вызвать /status — сверить содержимое ответа с реальным состоянием Ingestor"
       ],
       "dependencies": ["TASK-016", "TASK-010"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-018",

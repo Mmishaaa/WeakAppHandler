@@ -10,6 +10,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +24,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ingestor\WeakAppHandler.Ingestor\WeakAppHandler.Ingestor.csproj" />
+    <!-- Test-only: the admin API's machine tokens are minted by the real Auth Service through the
+         real client-credentials grant, rather than hand-signed here with a key the Ingestor was told
+         to trust — which would prove only that a JWT validates, not that the two services agree. -->
+    <ProjectReference Include="..\..\src\Auth\WeakAppHandler.Auth\WeakAppHandler.Auth.csproj" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 

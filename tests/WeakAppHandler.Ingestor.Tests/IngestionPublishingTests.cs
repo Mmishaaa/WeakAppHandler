@@ -10,7 +10,7 @@ namespace WeakAppHandler.Ingestor.Tests;
 /// this covers the fact that they route.
 /// </summary>
 [Collection(IngestionCollectionDefinition.Name)]
-public sealed class IngestionPublishingTests(RabbitMqIntegrationFixture fixture) : IAsyncLifetime
+public sealed class IngestionPublishingTests(IntegrationTestFixture fixture) : IAsyncLifetime
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
@@ -18,15 +18,15 @@ public sealed class IngestionPublishingTests(RabbitMqIntegrationFixture fixture)
     // of another's assertions while still exercising the real names.
     private readonly string _virtualHost = $"task016-{Guid.NewGuid():N}";
 
-    public Task InitializeAsync() => fixture.CreateVirtualHostAsync(_virtualHost);
+    public Task InitializeAsync() => fixture.RabbitMq.CreateVirtualHostAsync(_virtualHost);
 
-    public Task DisposeAsync() => fixture.DeleteVirtualHostAsync(_virtualHost);
+    public Task DisposeAsync() => fixture.RabbitMq.DeleteVirtualHostAsync(_virtualHost);
 
     [Fact]
     public async Task Polling_SuccessfulResponse_DeliversBothMessagesToTheirOwnQueuesWithOneBatchId()
     {
         var client = new FakeWeakAppClient(TestMeters.Success(TestMeters.ObservedResponse));
-        await using var host = await IngestorHost.StartAsync(fixture, _virtualHost, client);
+        await using var host = await IngestorHost.StartAsync(fixture.RabbitMq, _virtualHost, client);
 
         // Waiting on readings.ingested first and then matching readings.attempt by batch id, rather
         // than taking whichever message happens to be first in each collector: the loop keeps running
@@ -46,7 +46,7 @@ public sealed class IngestionPublishingTests(RabbitMqIntegrationFixture fixture)
     {
         var client = new FakeWeakAppClient(
             TestMeters.Failure(IngestOutcome.Corrupted, 200, "Error while copying content to a stream"));
-        await using var host = await IngestorHost.StartAsync(fixture, _virtualHost, client);
+        await using var host = await IngestorHost.StartAsync(fixture.RabbitMq, _virtualHost, client);
 
         var attempt = await host.Attempts.WaitForAsync(a => a.Outcome == IngestOutcome.Corrupted, Timeout);
 

@@ -15,10 +15,20 @@ namespace WeakAppHandler.Ingestor.WeakApp;
 /// </summary>
 public static class WeakAppResiliencePipelineFactory
 {
+    /// <param name="builder">The pipeline being built.</param>
+    /// <param name="options">Timeouts, retry and circuit-breaker settings.</param>
+    /// <param name="timeProvider">Clock the strategies schedule against.</param>
+    /// <param name="circuitBreakerStateProvider">
+    /// Attached to the circuit breaker so its state can be read from outside the pipeline —
+    /// <c>GET /api/v1/ingestion/status</c> (TASK-017) has no other way to see it. A provider
+    /// instance can only be attached to one breaker, which is safe here because the pipeline is
+    /// built once per host: wiring up options reloads would need a provider per rebuild.
+    /// </param>
     public static void Configure(
         ResiliencePipelineBuilder<HttpResponseMessage> builder,
         WeakAppOptions options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        CircuitBreakerStateProvider? circuitBreakerStateProvider = null)
     {
         builder.TimeProvider = timeProvider;
 
@@ -44,6 +54,7 @@ public static class WeakAppResiliencePipelineFactory
             SamplingDuration = TimeSpan.FromSeconds(options.CircuitBreakerSamplingDurationSeconds),
             MinimumThroughput = options.CircuitBreakerMinimumThroughput,
             BreakDuration = TimeSpan.FromSeconds(options.CircuitBreakerBreakDurationSeconds),
+            StateProvider = circuitBreakerStateProvider,
         });
 
         // Innermost: bounds a single attempt so one slow/hanging call can't consume the whole budget.

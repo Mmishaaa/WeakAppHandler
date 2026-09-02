@@ -23,6 +23,10 @@ public sealed class DevBypassAuthenticationHandler(
             new(ClaimTypes.NameIdentifier, Options.UserName),
             new(ClaimTypes.Name, Options.UserName),
             new(ClaimTypes.Role, Options.Role),
+
+            // Same claim shape as a real machine token, so scope-based policies behave under the
+            // bypass exactly as they do against the Auth Service.
+            new("scope", Options.Scopes),
         ];
 
         var identity = new ClaimsIdentity(claims, Scheme.Name);
