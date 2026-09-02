@@ -3128,3 +3128,161 @@ NEXT: TASK-034 (high) is now unblocked and starts the actual first frontend scre
 everything through TASK-041 were gated on this task alone, which was also the reason this was
 picked over TASK-007/021/030 (still the other unblocked medium-priority tasks) despite this one's
 own nominal "medium" label.
+
+[2026-09-02] TASK-034 - DONE
+Frontend app shell: routing, layout, one-accent-plus-severity-scale color semantics, a11y primitives
+(visible focus, ARIA live region), and the universal four-state AsyncBoundary component with a
+staleness indicator (PRD's first real M5 frontend screen work).
+
+Picked this as the highest-priority genuinely-unblocked task this session (TASK-034 is
+"high"; the only other unblocked pending tasks - TASK-007/021/030 - are all "medium"; every
+"critical" pending task, e.g. TASK-042/047, is still gated behind TASK-034..041). Created branch
+`task/task-034-app-shell` from up-to-date main (confirmed via `git checkout main && git pull
+--ff-only` before the environment failure described below).
+
+What was done (all file-based; PowerShell died partway through - see BLOCKER):
+  - `npm install react-router-dom` and `npm install -D vitest @testing-library/react
+    @testing-library/jest-dom @testing-library/user-event jsdom` both completed successfully
+    (confirmed by their actual npm output, captured before the shell died) - `frontend/package.json`
+    now has real resolved versions (react-router-dom ^7.18.3, vitest ^4.1.11, jsdom ^30.0.1, etc.),
+    not hand-guessed ranges. Added a `"test": "vitest run"` script. jsdom 30 printed an EBADENGINE
+    warning against this machine's Node 24.11.1 (jsdom 30 wants ^22.22.2 || ^24.15.0 || >=26.0.0) -
+    non-fatal (install still completed), but worth re-checking if `npm test` behaves oddly next
+    session; downgrading jsdom is the fix if so.
+  - `vite.config.ts` - added a `test` block (jsdom environment, `setupFiles` pointing at a new
+    `src/shared/testing/setup-tests.ts` which just imports `@testing-library/jest-dom/vitest` -
+    confirmed that subpath exists in the installed package before relying on it) via a
+    `/// <reference types="vitest/config" />` triple-slash directive rather than editing
+    `tsconfig.node.json`'s `types` array.
+  - Color semantics (`src/index.css`): one `--color-accent` (links/primary actions/focus rings/
+    active nav) plus a three-step `--color-severity-{normal,warning,critical}` scale with matching
+    `-bg` tints, documented in comments as reserved exclusively for meter/alert severity - nothing
+    else in the shell uses those three colors. Also added the global `:focus-visible` rule (accent
+    outline + box-shadow ring, not `outline: none` anywhere) and a `.visually-hidden`/`.focusable`
+    utility pair used by the skip link and the live region.
+  - `src/shared/ui/severity/` - `Severity` type (`'normal'|'warning'|'critical'`) plus a
+    `SeverityIndicator` component that is the ONLY place allowed to consume the severity CSS
+    variables; always pairs the color with a visible text label (never color-only), for TASK-036/
+    039 to reuse instead of re-inventing severity styling per-screen.
+  - `src/shared/ui/async-boundary/AsyncBoundary.tsx` - the task's centerpiece. Generic
+    `AsyncBoundary<T>` with `loading`/`error`/`data`/`isEmpty`/`onRetry`/`skeleton`/`emptyState`/
+    `renderError`/`children` props. Derives exactly four render paths (error-with-no-data ->
+    default or custom retry panel with `role="alert"`; loading-with-no-data -> caller's skeleton,
+    never a spinner overlay; no-usable-data -> empty state; otherwise -> `children(data, {
+    isStale })`), where `isStale = Boolean(error) || loading` covers BOTH acceptance criteria at
+    once: a background refetch (`loading` true, data already present) shows a "Refreshing…"
+    `role="status"` banner without discarding the visible data, and a refetch that errors
+    (`error` true, data already present) shows a "Showing last known data..." banner with its own
+    Retry button instead of the screen going blank - the specific behaviour TASK-034's acceptance
+    criteria calls out by name. One real type bug caught and fixed while writing this: deriving a
+    single `hasData` boolean and branching on `!hasData` does NOT let TypeScript narrow `data` from
+    `T | undefined` to `T` before calling `children(data, ...)` - control-flow narrowing tracks the
+    literal comparison, not a boolean proxy for it. Fixed by re-checking the literal
+    `data === undefined` in the last guard clause (`if (!hasData || data === undefined) return
+    ...`), which gives real narrowing for free below it - documented inline since it's a genuine
+    "the boolean summary lied to the type checker" gotcha, not stylistic.
+  - `src/shared/ui/skeleton/Skeleton.tsx` - a small reusable shimmering-bars placeholder so
+    `AsyncBoundary` callers (TASK-036 onward) don't each hand-roll a skeleton; respects
+    `prefers-reduced-motion`.
+  - `src/shared/a11y/` - the ARIA live region primitive, split into THREE files
+    (`announcer-context.ts` for the bare `createContext` + type, `AnnouncerProvider.tsx` for the
+    provider component, `useAnnouncer.ts` for the hook) rather than one combined file. This was a
+    deliberate defensive call, not the original design: `eslint-plugin-react-refresh`'s
+    `only-export-components` rule (already wired into `eslint.config.js` via
+    `reactRefresh.configs.vite`) is known to flag a file that exports both a component and a hook
+    together, and since the shell died before `npm run lint` could actually confirm this either
+    way, splitting into component-only / hook-only / no-component files sidesteps the question
+    entirely rather than shipping something that might fail lint unverified. One shared
+    `aria-live="polite" aria-atomic="true"` region is rendered once by `AnnouncerProvider`; a
+    zero-width-space parity trick forces a DOM text change (and thus an actual SR announcement)
+    even for two consecutive identical messages. Wired to a real, non-decorative use immediately:
+    `app/layout/RouteAnnouncer.tsx` announces "Navigated to <page>" on every client-side route
+    change (skipping the very first render), which is a real SPA accessibility requirement (screen
+    readers get no automatic page-changed announcement without a full browser navigation) and also
+    proves the primitive end-to-end for TASK-039/035 to reuse for alert-raised/resolved events
+    later.
+  - `src/app/layout/AppShell.tsx` (+`app-shell.css`, `nav-items.ts`) - header with brand + a
+    `<nav aria-label="Main">` of four `NavLink`s (Overview/History/Alerts/Administration, active
+    link gets `aria-current="page"` automatically from react-router plus an accent underline), a
+    `.app-shell__skip-link` (visually-hidden until focused, jumps to `#main-content`), and
+    `<main id="main-content" tabIndex={-1}>` wrapping `<Outlet />` - the standard skip-link pattern
+    (href target must be focusable via `tabIndex={-1}` even though it's not itself in the natural
+    tab order). `src/app/App.tsx` now wires `AnnouncerProvider` > `BrowserRouter` > `Routes` with
+    four placeholder pages under `src/app/pages/` (`OverviewPage`/`HistoryPage`/`AlertsPage`/
+    `AdministrationPage`, each just a heading + a one-line pointer to the task that will build the
+    real screen - TASK-036/038/039/040 respectively) so routing/layout has something real to
+    render without pre-building screens that are explicitly later tasks' own scope.
+  - Orphaned by this refactor and NOT deletable this session (see BLOCKER): `src/app/App.css`
+    (old `.app` class, nothing imports it anymore) and `src/shared/a11y/announcer.tsx` (superseded
+    by the three-file split above) were both emptied to zero-byte files rather than left with dead
+    code, matching the exact precedent TASK-033's own entry set for the same tool limitation. NEXT
+    SESSION MUST `git rm` (or plain delete) both once a working shell is available - this is
+    tracked, not forgotten.
+  - Tests written (NOT YET RUN - see BLOCKER): `AsyncBoundary.test.tsx` (6 cases: skeleton-only
+    while loading with no data; empty state when `isEmpty` says so; error state with a working
+    Retry button via `@testing-library/user-event`, asserting `role="alert"`; loaded-with-no-
+    staleness-banner when everything is fresh; error-with-existing-data keeps data on screen behind
+    a `role="status"` banner; loading-with-existing-data shows "Refreshing…" instead of the
+    skeleton). `AppShell.test.tsx` (4 cases: skip link href + focusable main target; all four nav
+    links present inside the `nav` landmark; Tab alone reaches the skip link then all four nav
+    links in DOM order, one `toHaveFocus()` per stop; activating a focused nav link with Enter
+    navigates and updates `aria-current`). `announcer.test.tsx` (2 cases: the live region starts
+    empty with the right `aria-live`/`aria-atomic` attributes; `announce()` from `useAnnouncer`
+    lands in the region's text content). These cover TASK-034's acceptance criteria about as far as
+    RTL/jsdom can reach - the criterion about focus being "visually" visible is a CSS/rendering
+    claim RTL cannot assert; the `:focus-visible` outline rule in `index.css` is the corresponding
+    implementation, unverified by an actual browser screenshot this session (no browser-driving
+    tool was available/attempted here beyond what RTL's jsdom gives).
+
+Picked up from an iteration whose shell tool died mid-session (the same recurring environment
+failure this file's TASK-020/024/029/031/032/033 entries document) right after its two `npm
+install` calls completed but before it could build, lint, test, or reach git even once. The design
+above is that iteration's own record, preserved as-is - verifying it surfaced two real, independent
+bugs, both exactly the kind "reasoning by inspection" cannot catch:
+
+  1. **A literal invisible character in source.** `AnnouncerProvider`'s zero-width-space parity
+     trick was written as an actual U+200B byte sitting unescaped in the `.tsx` file
+     (``${next}<ZWSP>` `` in a template literal), which `npm run lint` correctly rejected via
+     `no-irregular-whitespace` - an invisible byte in source is a real hazard on its own, not just a
+     lint technicality. Fixed by building the character from its code point instead
+     (`String.fromCharCode(0x200b)`), the byte-for-byte identical runtime string with nothing
+     invisible left in the file. (Worth a general note for future edits: getting an AI assistant to
+     literally type an escape sequence like `​` into a file is unreliable - the model tends to
+     render the actual character it names rather than the six ASCII bytes of the escape syntax, so
+     `String.fromCharCode`/`fromCodePoint` is the dependable way to introduce a specific code point
+     into source without that ambiguity.)
+  2. **Every AsyncBoundary test after the first two failed with "found multiple elements."** This
+     project's `vite.config.ts` test block has no `test.globals: true`, and every test file
+     explicitly imports `describe`/`it`/`afterEach`/etc. from `'vitest'` rather than relying on
+     injected globals - but `@testing-library/react`'s own automatic `afterEach(cleanup)` only
+     registers itself when it finds a GLOBAL `afterEach` on `globalThis` at import time, which
+     requires exactly the `globals: true` this project deliberately does not set. That detection
+     silently no-ops, so every `render()` call left its tree in jsdom's one shared `document`
+     without ever being unmounted, and later tests in the same file saw earlier tests' leftover DOM
+     alongside their own. Fixed with one line in the shared `setup-tests.ts`:
+     `afterEach(cleanup)` (explicit imports of both from `'vitest'`/`'@testing-library/react'`) -
+     registered once, in the one place `setupFiles` exists for, rather than requiring every test
+     file to remember it or changing this project's explicit-import testing convention to use
+     globals just to make RTL's own auto-detection work.
+  Neither bug is specific to this codebase's conventions - the second in particular is a well-known
+  gotcha for any Vitest + Testing Library project that opts out of `test.globals`.
+
+Also: deleted the two orphaned empty files the predecessor's tooling could not remove that session
+(`frontend/src/app/App.css`, superseded by `AppShell`'s own CSS; `frontend/src/shared/a11y/
+announcer.tsx`, superseded by the three-file `AnnouncerProvider`/`useAnnouncer`/context split) -
+confirmed nothing imports either before removing them.
+
+VERIFIED, three times from progressively cleaner states (incremental re-run; `rm -rf src/gql dist`;
+a full `rm -rf node_modules src/gql dist` + fresh `npm install`), matching the discipline TASK-033's
+own entry established for this same package: `npm run build` (via `prebuild`'s codegen regeneration)
+-> 35 modules transformed, 0 TypeScript errors. `npm run lint` -> clean. `npm test` -> 3 test files,
+12/12 passed (`AsyncBoundary.test.tsx` x6, `AppShell.test.tsx` x4, `announcer.test.tsx` x2). The
+acceptance criterion about focus being *visually* visible remains a CSS/rendering claim RTL/jsdom
+cannot assert by itself - the `:focus-visible` outline rule in `index.css` is the implementation,
+unverified by an actual rendered screenshot (no browser-driving tool was used this session either).
+  - tasks.json: TASK-034 status -> "done".
+
+NEXT: TASK-035 (high) is now unblocked - the SignalR client hook for live alert raised/resolved
+events, the natural next consumer of the `AnnouncerProvider`/`useAnnouncer` primitive this task
+built and already wired to route-change announcements. TASK-007, TASK-021, TASK-030, TASK-037 are
+the other unblocked medium-priority tasks.
