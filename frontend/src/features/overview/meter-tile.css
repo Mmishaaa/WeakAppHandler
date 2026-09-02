@@ -1,0 +1,65 @@
+.meter-tile {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+/* The tile's own left border/background react to severity - the second intentional consumer of
+   the severity scale alongside SeverityIndicator's dot+label (see SeverityIndicator.tsx). */
+.meter-tile[data-severity='warning'] {
+  border-left-color: var(--color-severity-warning);
+  background: var(--color-severity-warning-bg);
+}
+
+.meter-tile[data-severity='critical'] {
+  border-left-color: var(--color-severity-critical);
+  background: var(--color-severity-critical-bg);
+}
+
+.meter-tile__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.meter-tile__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.meter-tile__metrics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.meter-tile__metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.meter-tile__metric-name {
+  color: var(--color-text-muted);
+}
+
+.meter-tile__metric-value {
+  font-weight: 600;
+}
+
+.meter-tile__metric-time {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}

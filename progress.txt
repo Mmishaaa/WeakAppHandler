@@ -3426,3 +3426,113 @@ NEXT: TASK-035 (high) is now unblocked - the SignalR client hook for live alert 
 events, the natural next consumer of the `AnnouncerProvider`/`useAnnouncer` primitive this task
 built and already wired to route-change announcements. TASK-007, TASK-021, TASK-030, TASK-037 are
 the other unblocked medium-priority tasks.
+
+================================================================================
+[2026-09-03] TASK-036 - DONE
+Frontend Overview screen: meter tiles grouped by location with current value/unit/relative time,
+tile severity color driven by active alerts, header summary (meters reporting / last successful
+poll / active alert count).
+================================================================================
+
+Picked as the highest-priority genuinely-unblocked task this session: of the pending tasks whose
+dependencies were all `done` (TASK-007/021/030/036/037/039, all the rest gated behind TASK-021/026/
+030/037/041 which are still pending), TASK-036 and TASK-039 tie at "high" - the other five are
+"medium". Chose TASK-036 over TASK-039 as the natural first consumer of TASK-035's
+`useOnReadingStoredSubscription` (TASK-035's own NEXT note names TASK-036 explicitly for this) and
+because it's the app's landing route (`index` route in `App.tsx`). Branch
+`task/task-036-overview-screen` from up-to-date main.
+
+Confirmed before starting: the Gateway schema (`src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql`)
+already exposes everything needed - `meters { id location meterType lastSeenAt currentValues {
+metricCode valueNumeric valueBool observedAt } }` and `alerts(where: { status: { eq: ACTIVE } })
+{ nodes { id meterId severity } }` - so this task is 100% frontend, no backend/schema changes.
+Also confirmed a real gap: `MeterReadModel`/`MeterCurrentValueReadModel` expose no unit/display-name
+for a metric even though Processor's `metrics` seed table has one (`MetricSeedData.cs`) - hardcoded
+a small client-side lookup (`entities/meter/metricDisplay.ts`) from that same seed data
+(energy->kWh, co2->ppm, pm25->µg/m³, humidity->%, motion_detected->boolean) rather than blocking on
+a backend change; flagged as a known gap for whoever next touches the Gateway schema, not silently
+worked around.
+
+What was built:
+  - `entities/meter/metricDisplay.ts` (+test) - `getMetricDisplayInfo`/`formatMetricValue`, the
+    client-side metric metadata lookup above. Numeric formatting and `shared/time/relativeTime.ts`'s
+    `Intl.RelativeTimeFormat` are both pinned to the `'en-US'` locale explicitly rather than
+    `undefined` (the runtime default) - this machine's default locale is `ru-RU`, which silently
+    flipped every formatted number/relative-time string in tests and would have done the same in
+    any deployment with a non-English OS/browser locale, while every other label in the UI
+    (`AppShell` nav, `AsyncBoundary`, this screen's own headings) is English-only. Caught by actually
+    running the test suite, not by reading the code - `4.2 kWh` rendered as `4,2 kWh` and every
+    relative-time string came back in Russian on the first `npm test` run.
+  - `shared/time/relativeTime.ts` (+test) + `shared/time/useNow.ts` - pure `formatRelativeTime(iso,
+    now)` (`Intl.RelativeTimeFormat`, walks year/month/day/hour/minute/second) and a `useNow(
+    intervalMs = 30_000)` hook that re-renders on an interval so "N minutes ago" labels don't go
+    stale while a tile sits on screen without a data refresh.
+  - `features/overview/overviewSeverity.ts` (+test) - `buildMeterSeverityMap(alerts)`, a pure
+    function picking the worst active alert per meter and mapping it to a tile severity/label pair.
+    Backend `AlertSeverity` has three tiers (Info/Warning/Critical) but the UI's `Severity` type
+    (`shared/ui/severity/Severity.ts`, from TASK-034) only has two non-normal tiers
+    (warning/critical) - INFO alerts (the seeded "Humidity above 70%" rule) share the `warning` tile
+    color with WARNING alerts but keep a distinct `"Info"` text label, since color alone must never
+    be how severity is conveyed (same rule `SeverityIndicator` already followed) and there's no
+    fourth tile color to introduce cleanly.
+  - `features/overview/groupMetersByLocation.ts` (+test) - pure grouping helper, preserves each
+    location's first-seen order from the (already server-sorted) meter list.
+  - `features/overview/useOverviewData.ts` - the `OverviewData` GraphQL query (`meters` +
+    active `alerts`, added to codegen's inline-document input, regenerated `src/gql/`) plus the
+    realtime wiring: any `onReadingStored` event or `AlertRaised`/`AlertResolved` event schedules a
+    500ms-debounced `refetch()` (coalesces a whole poll cycle's worth of per-meter events - up to 18
+    - into one network round-trip instead of one refetch per event), while `useAlertsHub`'s
+    `onReconnected` triggers an immediate, non-debounced refetch to reconcile whatever was missed
+    while disconnected (the exact seam TASK-035 built and left unconsumed for this task). Server
+    data stays the single source of truth throughout - no client-side merging of realtime payloads
+    into the Apollo cache, deliberately, to avoid a second, divergent copy of severity-mapping logic.
+  - `features/overview/{OverviewHeader,MeterTile,LocationSection,OverviewContent}.tsx` (+css) - the
+    presentational layer. `OverviewContent` is the one piece of real UI logic that is NOT
+    query-aware (takes an already-resolved data shape + `now` as props) specifically so it could be
+    unit-tested with plain RTL, no `MockedProvider`/subscription mocking involved - `OverviewPage`
+    itself (the thin `useOverviewData` + `AsyncBoundary` + `OverviewContent` wrapper) is intentionally
+    NOT unit-tested for the same reason `ConnectionStatusBadge`'s full realtime chain needed the
+    global signalr/graphql-ws mocks in TASK-035: exercising it for real would mean either fighting
+    `MockedProvider`'s exact-variables matching for a subscription document mixed with a query, or
+    hand-rolling cache doubles, neither of which was worth it for a route wrapper with almost no
+    logic of its own.
+  - `shared/ui/severity/SeverityIndicator.tsx` - updated its own doc comment: it is no longer the
+    *only* consumer of `--color-severity-*`. `MeterTile`'s own background/left-border (via a
+    `data-severity` attribute) is a second, deliberate consumer, because TASK-036's acceptance
+    criterion is explicit that the *tile* itself (not just an indicator badge inside it) must change
+    color - documented the second consumer explicitly rather than silently breaking the "only place"
+    comment's claim.
+  - `app/pages/OverviewPage.tsx` - rewritten from TASK-034's placeholder to the real screen
+    (`useOverviewData` + `useNow` + `AsyncBoundary` wrapping `OverviewContent`).
+
+NOT done in this session (explicitly out of scope, not an oversight):
+  - No manual real-browser verification against a running Gateway/Notification/Processor stack
+    (same caveat TASK-034/035's entries already apply) - would need `Auth:DevBypassEnabled=true` on
+    Gateway and Notification (neither is in docker-compose yet, TASK-047) plus Processor actually
+    ingesting data. `OverviewContent`'s RTL tests cover the acceptance criteria's actual claims
+    (value/unit/relative-time per tile, severity-driven tile color, header counts matching the
+    underlying alert data) against synthetic data instead.
+  - "Reporting meters" in the header is simply `meters.length` (every meter the Gateway returns);
+    "last successful poll" is `max(meters.lastSeenAt)` rather than a dedicated ingestion-status call
+    - Gateway has no REST proxy to Ingestor's `/status` yet (that's TASK-026, still pending and not
+    a dependency of this task), and `lastSeenAt` is already updated by Processor on every successful
+    poll containing that meter (TASK-019), so it's a correct, already-available signal rather than a
+    placeholder.
+  - Active alert count is `alerts.nodes.length` from a single `first: 100` page, not a true
+    server-side total (`AlertsConnection` has no `totalCount` field in the current schema). Fine at
+    this project's scale (5 seed rules, 18 meters) but would undercount past 100 simultaneously
+    active alerts - noted for whoever adds `totalCount` to the Gateway schema or wires up TASK-039's
+    own alerts list, which will hit the same ceiling.
+
+VERIFIED: `npm run codegen` (regenerates `src/gql/` including the new `OverviewData` typed query
+document) -> clean. `npm run lint` -> clean (one `react-hooks/exhaustive-deps` warning surfaced and
+was fixed, not suppressed - `activeAlerts` needed its own `useMemo` rather than being a fresh array
+literal computed inline before the `useMemo` that depends on it). `npm run build` (`tsc -b && vite
+build`, via `prebuild`'s codegen) -> 0 TypeScript errors, 637 modules transformed. `npm test` -> 13
+test files, 52/52 passed, including all pre-existing TASK-033/034/035 suites still green.
+  - tasks.json: TASK-036 status -> "done".
+
+NEXT: TASK-037 (medium, chart components) and TASK-039 (high, Alerts screen - the other tied-highest
+candidate this session, and the first real consumer of `useAlertsHub`'s message handlers plus its
+`onReconnected` refetch seam) are both now further along their own dependency chains but still
+pending. TASK-007, TASK-021, TASK-030 remain the other unblocked medium-priority tasks.

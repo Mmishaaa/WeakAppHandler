@@ -1,0 +1,17 @@
+.location-section {
+  margin-bottom: 2rem;
+}
+
+.location-section__heading {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+}
+
+.location-section__tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
