@@ -2706,3 +2706,121 @@ NEXT: TASK-024 (Gateway aggregations) and TASK-031 (SignalR AlertsHub) remain th
 high-priority tasks. TASK-032 was also the last Gateway-side blocker for TASK-033 (Frontend toolchain:
 Vite/React/TypeScript/GraphQL codegen from this service's now-finalised schema.graphql), which starts
 an entirely new M5 milestone rather than continuing to extend the Gateway.
+
+[2026-09-02] TASK-031 - DONE
+Notification: SignalR AlertsHub rejecting anonymous connections, pushing alert raised/resolved events
+to connected clients (PRD §6.7).
+
+Picked over TASK-024 (Gateway aggregations, the other unblocked "high" task) because
+TASK-029's own entry above explicitly flagged it as "close to a one-file change on the seam this task
+left for it," and no "critical"-priority task was unblocked this session (TASK-042/047 both still wait
+on TASK-041, which is several tasks further down the frontend chain).
+
+Branch `task/task-031-signalr-alerts-hub` created from an up-to-date `main` (confirmed via `git
+status`/`git pull --ff-only` before the environment failure described below - those two commands are
+the ONLY shell commands that worked this session). Researched the existing seam first (an Explore
+agent, since the PowerShell tool was still working for git at that point): `IAlertDispatcher`
+(src/Notification/WeakAppHandler.Notification.Api/Alerting/IAlertDispatcher.cs) is a two-method
+interface (`DispatchRaisedAsync`/`DispatchResolvedAsync`) called once, in-process, after an alert
+commits; `LoggingAlertDispatcher` is registered via `TryAddSingleton` in `AddAlerting`
+(AlertingServiceCollectionExtensions.cs) specifically so a host - or this task - can register its own
+implementation first and keep the default out of the way.
+
+Implementation (all under src/Notification/WeakAppHandler.Notification.Api/):
+  - RealTime/AlertsHub.cs - `[Authorize(Policy = ServicePolicies.Viewer)]` empty `Hub` (push-only, no
+    client-invokable methods). Viewer policy, not Admin, since any authenticated user should see
+    alerts, not just operators. The XML doc records the single-replica-only caveat PRD §6.7 calls out
+    explicitly (no SignalR backplane configured).
+  - RealTime/SignalRAlertDispatcher.cs - `IAlertDispatcher` over `IHubContext<AlertsHub>`, broadcasting
+    to `Clients.All` under method names "AlertRaised"/"AlertResolved" with the Contracts records
+    themselves as the payload (no separate DTO - a client already needs to know AlertRaised/
+    AlertResolved's shape from the REST/GraphQL side eventually, so there is nothing to gain from a
+    third shape). A broadcast failure is caught (with `#pragma warning disable CA1031`, the same
+    pattern IngestionWorker.cs already uses for "the loop must survive every failure") and logged
+    rather than rethrown, EXCEPT a cancellation tied to the caller's own token, which is allowed to
+    propagate - per IAlertDispatcher's own doc comment, a dispatch failure must not fault the
+    already-committed alert's RabbitMQ message and send it back through the endpoint's retry policy.
+  - Program.cs: `AddSignalR()` and `AddSingleton<IAlertDispatcher, SignalRAlertDispatcher>()` added
+    BEFORE `AddNotificationPersistence`/`AddAlerting`, so `AddAlerting`'s `TryAddSingleton` sees an
+    existing registration and never adds `LoggingAlertDispatcher` in production. `MapHub<AlertsHub>
+    ("/hubs/alerts")` added next to `MapControllers()`. (NotificationHost.cs, the existing test host
+    used by AlertingConsumerTests/NotificationHostTests, still wins over this: its own
+    `ConfigureServices` appends ANOTHER `AddSingleton<IAlertDispatcher>(recordingDispatcher)` AFTER
+    Program.cs runs, and DI resolves the last registration - confirmed by reading, not by running,
+    which is exactly the gap the blocker below leaves open.)
+  - appsettings.json: added an `Auth` section (Issuer/Audience/JwksUri/RequireHttpsMetadata) copied
+    from Ingestor's own appsettings.json pattern (TASK-017) - Notification had NO Auth config at all
+    before this task, because it had no protected endpoints yet. Same port 5091 (Auth Service's local
+    profile), same "Authority stays unset, JWKS pinned directly" rationale.
+
+Testing (tests/WeakAppHandler.Notification.Api.Tests/), matching TASK-031's three test_steps exactly:
+  - AlertsHubHost.cs - a new test host, modeled directly on IngestorAdminHost.cs (TASK-017's admin API
+    tests): hosts the REAL Auth Service and the REAL Notification service together, wires
+    Notification's JWKS HTTP client to the Auth host's TestServer handler (`ConfigurePrimaryHttpMessageHandler
+    (authFactory.Server.CreateHandler)`), and mints a real viewer token via Auth's own `/login`.
+    Deliberately does NOT override `IAlertDispatcher` the way `NotificationHost.cs` does - the whole
+    point is to exercise the real `SignalRAlertDispatcher`. Exposes `CreateHubConnection(accessToken)`
+    building a `Microsoft.AspNetCore.SignalR.Client.HubConnection` against the Notification TestServer,
+    forced onto `HttpTransportType.LongPolling` (TestServer has no real socket for WebSockets to
+    upgrade over - a well-known constraint of testing SignalR through WebApplicationFactory, not
+    something specific to this codebase).
+  - Had to alias the new `ProjectReference` to `WeakAppHandler.Auth` (`Aliases="AuthApi"` in the
+    .csproj) and add `extern alias AuthApi;` to AlertsHubHost.cs, exactly the fix TASK-032's own entry
+    above documents for the identical problem in Gateway.Api.Tests: both Notification.Api and Auth
+    declare their own top-level global `Program` class, and an unaliased second reference makes every
+    unqualified `Program` already in this test project (NotificationHost.cs, NotificationHostTests.cs)
+    ambiguous (CS0433) the moment both assemblies are referenced at once. IngestorAdminHost.cs sidesteps
+    the same problem differently (using `IngestionPoller`, not `Program`, as the Ingestor's
+    `WebApplicationFactory<T>` marker) - aliasing was the closer match here since, unlike
+    IngestorAdminHost, this new host needed `Program` as one host AND a second, unrelated real service's
+    types (JwtTokenService/AuthDbContext/AuthSeedData) it never needed a `WebApplicationFactory` marker
+    workaround for on the Ingestor side. Only `AlertsHubHost.cs` carries the `extern alias`; every other
+    file in the project (including the new AlertsHubTests.cs) uses the unqualified, already-familiar
+    `WeakAppHandler.Notification.Api.*` types.
+  - AlertsHubTests.cs - 4 tests: (1) connecting without an access token throws (the exact SignalR
+    client exception for a rejected handshake is transport-dependent, so the assertion is deliberately
+    `Assert.ThrowsAnyAsync<Exception>` rather than pinned to one type); (2) a connected client with a
+    real viewer token receives "AlertRaised" for a breaching reading published through the real
+    consumer pipeline, asserting the same fields AlertingConsumerTests already asserts on the
+    dispatcher-level event; (3) a subsequent below-threshold reading produces a separate "AlertResolved"
+    for the same AlertId; (4) exactly one "AlertRaised" arrives for one breaching reading (a 2-second
+    grace period after the first receipt, checking no duplicate shows up) - the acceptance criterion
+    "the same event is not sent twice to the same client." Each test gets its own RabbitMQ virtual host,
+    the AlertingConsumerTests precedent, so concurrent runs can't cross-deliver on the fixed queue name.
+  - Directory.Packages.props / the test .csproj: added `Microsoft.AspNetCore.SignalR.Client` pinned to
+    10.0.11, matching every other ASP.NET Core-family package version in this repo (JwtBearer, TestHost,
+    Mvc.Testing, OpenApi are all 10.0.11) - but see the blocker below, this number was NEVER actually
+    confirmed against NuGet.
+  - notification.slnf: added `src/Auth/WeakAppHandler.Auth/WeakAppHandler.Auth.csproj` so `dotnet build
+    notification.slnf`/`dotnet test notification.slnf` pull in the new test-only dependency.
+
+Picked up from a killed iteration whose shell tool died mid-session (the same recurring environment
+failure TASK-020/029/032's entries documented) before it could build, test, or reach git even once -
+everything above this paragraph is that iteration's own design record, preserved as-is. Its two
+flagged unknowns both turned out fine: `Microsoft.AspNetCore.SignalR.Client` 10.0.11 restores cleanly
+(it exists on NuGet, matching every other ASP.NET Core-family package pin in this repo), and the
+`HubConnectionBuilder.WithUrl(Uri, HttpTransportType, Action<HttpConnectionOptions>)` overload in
+AlertsHubHost.cs compiled and worked exactly as written. Two small StyleCop violations were the only
+real issues: a `[LoggerMessage]` static partial method placed after a private instance method
+(SA1204) in SignalRAlertDispatcher.cs, and a single-line comment needing a blank line before it
+(SA1515) in AlertsHubHost.cs - both one-line fixes.
+
+The one thing worth flagging for whoever reads this later: a full-solution `dotnet test` run produced
+one failure in `IngestionWorkerTests.ExecuteAsync_PollOutlastingTheInterval_SkipsACycleInsteadOfOverlappingPolls`
+(a real-clock TASK-016 test, nothing this task touches) - re-running that assembly alone passed 28/28,
+and a second full-solution run passed clean, confirming it was thread-scheduling contention from
+running every Testcontainers-backed suite at once, not a regression.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 192/192 passed across all nine test assemblies (Docker
+Desktop running; Testcontainers PostgreSQL + RabbitMQ), confirmed twice. The Notification assembly
+(33 tests, up from 29) was run twice on its own as well, since AlertsHubTests asserts on live SignalR
+delivery timing.
+  - tasks.json: TASK-031 status -> "done".
+
+NEXT: TASK-024 (Gateway aggregations, high) is the only remaining unblocked high-priority task.
+TASK-030 (alert-rule admin CRUD), TASK-021, TASK-033 (frontend toolchain) are medium-priority and also
+unblocked.
+
+TASK-024 (Gateway aggregations) remains the other unblocked "high"-priority task if a future session
+finds this branch's blocker still unresolved and wants independent work to pick up instead.

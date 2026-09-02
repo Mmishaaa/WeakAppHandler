@@ -7,6 +7,7 @@
       "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
       "src\\Notification\\WeakAppHandler.Notification.RuleEngine\\WeakAppHandler.Notification.RuleEngine.csproj",
       "src\\Notification\\WeakAppHandler.Notification.Api\\WeakAppHandler.Notification.Api.csproj",
+      "src\\Auth\\WeakAppHandler.Auth\\WeakAppHandler.Auth.csproj",
       "tests\\Shared\\WeakAppHandler.IntegrationTesting\\WeakAppHandler.IntegrationTesting.csproj",
       "tests\\WeakAppHandler.Notification.Api.Tests\\WeakAppHandler.Notification.Api.Tests.csproj",
       "tests\\WeakAppHandler.Notification.RuleEngine.Tests\\WeakAppHandler.Notification.RuleEngine.Tests.csproj"

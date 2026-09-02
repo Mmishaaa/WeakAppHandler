@@ -1,11 +1,18 @@
 using WeakAppHandler.Notification.Api.Alerting;
 using WeakAppHandler.Notification.Api.Persistence;
+using WeakAppHandler.Notification.Api.RealTime;
 using WeakAppHandler.ServiceDefaults;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddSignalR();
+
+// Registered ahead of AddAlerting's TryAddSingleton (TASK-031), so this — not the logging default —
+// is what IAlertDispatcher resolves to outside tests that override it themselves.
+builder.Services.AddSingleton<IAlertDispatcher, SignalRAlertDispatcher>();
+
 builder.Services.AddNotificationPersistence(builder.Configuration);
 builder.Services.AddAlerting();
 builder.Services.AddControllers();
@@ -32,6 +39,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<AlertsHub>("/hubs/alerts");
 app.MapServiceDefaultsEndpoints();
 
 app.Run();
