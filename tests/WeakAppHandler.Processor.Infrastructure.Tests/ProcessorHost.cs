@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.IntegrationTesting;
 using WeakAppHandler.Processor.Application.Ingestion;
+using WeakAppHandler.Processor.Application.Stats;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
@@ -31,6 +32,8 @@ internal sealed class ProcessorHost(IHost host, ConsumeCounter consumed, Message
     public MessageCollector<ReadingStored> StoredReadings => storedReadings;
 
     public IBus Bus => host.Services.GetRequiredService<IBus>();
+
+    public ProcessingStatsState Stats => host.Services.GetRequiredService<ProcessingStatsState>();
 
     public static async Task<ProcessorHost> StartAsync(IntegrationTestFixture fixture, string virtualHost)
     {

@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,10 +24,20 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
-    <!-- The RabbitMQ topology the consumers are bound to. The Worker project is deliberately not
-         referenced: the test host mirrors its wiring instead, so a test cannot depend on anything
-         the service host does not itself register. -->
+    <!-- The RabbitMQ topology the consumers are bound to. Most tests here deliberately do not
+         exercise the Worker project itself, mirroring its wiring instead so a test cannot depend on
+         anything the service host does not itself register; ProcessorAdminHost (TASK-021) is the
+         one exception, since testing the real REST endpoint means testing the real host. -->
     <ProjectReference Include="..\..\src\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Worker\WeakAppHandler.Processor.Worker.csproj" />
+    <!-- Test-only: the admin API's machine tokens are minted by the real Auth Service through the
+         real client-credentials grant, rather than hand-signed here with a key the Processor was
+         told to trust. Aliased because both WeakAppHandler.Processor.Worker and WeakAppHandler.Auth
+         declare their own top-level `Program` type for WebApplicationFactory<Program> - an unaliased
+         second reference makes every unqualified `Program` in this test project ambiguous (CS0433),
+         the same fix WeakAppHandler.Notification.Api.Tests and WeakAppHandler.Gateway.Api.Tests
+         already apply for the same reason. -->
+    <ProjectReference Include="..\..\src\Auth\WeakAppHandler.Auth\WeakAppHandler.Auth.csproj" Aliases="AuthApi" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 

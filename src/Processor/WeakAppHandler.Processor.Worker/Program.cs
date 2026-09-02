@@ -7,12 +7,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddProcessorInfrastructure(builder.Configuration);
+builder.Services.AddControllers();
 
 builder.AddServiceMassTransit(
     bus =>
     {
         bus.AddConsumer<ReadingsIngestedConsumer>();
         bus.AddConsumer<IngestAttemptRecordedConsumer>();
+
+        // Not bound to an explicit receive endpoint below: MassTransit publishes Fault<T> to its own
+        // convention exchange, independent of the routing keys the ingestion messages themselves use,
+        // so ConfigureEndpoints gives each of these its own convention-named queue.
+        bus.AddConsumer<ReadingsIngestedFaultConsumer>();
+        bus.AddConsumer<IngestAttemptRecordedFaultConsumer>();
     },
     (context, rabbitMq) =>
     {
@@ -27,6 +34,15 @@ builder.AddServiceMassTransit(
 
 var app = builder.Build();
 
+// No UseHttpsRedirection here, unlike the browser-facing hosts: the admin API lives on the backend
+// network only (PRD §10) and its one caller is the Gateway's machine client, so a redirect would
+// only turn a working internal call into a second round trip.
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
 app.MapServiceDefaultsEndpoints();
 
 app.Run();
+
+public partial class Program;

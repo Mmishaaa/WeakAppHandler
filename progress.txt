@@ -3626,3 +3626,102 @@ NEXT: TASK-007/021/030/037 (all "medium") are the remaining genuinely-unblocked 
 none is now clearly higher-priority than another by the same priority-then-dependency-depth
 reasoning this session and TASK-036's used. TASK-038 (History screen charts) and TASK-040
 (Administration screen) both move closer to unblocked as TASK-037/030 land.
+
+================================================================================
+[2026-09-03] TASK-021 - DONE
+Processor REST GET /api/v1/processing/stats (processed/deduplicated/dead-lettered), machine-JWT
+protected.
+================================================================================
+
+Picked over TASK-007/030/037 (all tied at "medium", per TASK-039's own NEXT note) because it is the
+only one of the four whose completion directly unblocks a "high"-priority task (TASK-022's M2
+end-to-end tests) and sits on the path to the critical TASK-044/047 chain, by the same
+priority-then-dependency-depth reasoning prior sessions used. Branch
+`task/task-021-processing-stats` from up-to-date main.
+
+What was built (all production code compiles clean, `dotnet build WeakAppHandler.sln` and
+`dotnet build processor.slnf` both 0 warnings/0 errors, verified twice in this session):
+  - `Processor.Application/Stats/{ProcessingStatsState,ProcessingStatsSnapshot}.cs` - an in-memory,
+    lock-guarded singleton mirroring the Ingestor's own `IngestionRuntimeState` (TASK-017): tallies
+    `Processed`/`Deduplicated` from the `IngestionRecordResult` the recorder already returns, and
+    `DeadLettered` from a new pair of fault consumers (below). Deliberately not persisted, same
+    reasoning as `IngestionRuntimeState` - operational state about a running process, not a record of
+    what was ingested.
+  - `ReadingsIngestedConsumer`/`IngestAttemptRecordedConsumer` now take `ProcessingStatsState` and
+    call `RecordResult` with what the recorder returned - previously discarded, and
+    `IngestionRecordResult`'s own doc comment (written back in TASK-018) already anticipated this
+    exact task ("TASK-021's /stats endpoint counts the two apart").
+  - `ReadingsIngestedFaultConsumer`/`IngestAttemptRecordedFaultConsumer` (new,
+    `Processor.Infrastructure/Ingestion/`) - `IConsumer<Fault<ReadingsIngested>>` /
+    `IConsumer<Fault<IngestAttemptRecorded>>`. MassTransit publishes `Fault<T>` by default once a
+    receive endpoint's retry policy is exhausted; these are registered via plain `bus.AddConsumer<T>`
+    (not on an explicit receive endpoint like the consumers they shadow) so `ConfigureEndpoints` gives
+    each its own convention-named queue, since a dead-lettered message and the fault event describing
+    it are two independent deliveries.
+  - `ProcessorInfrastructureServiceCollectionExtensions` - registers `ProcessingStatsState` as a
+    `TryAddSingleton`.
+  - `Processor.Worker/Admin/{ProcessingAdminController,ProcessingStatsResponse}.cs` - new
+    `[ApiController]` at `api/v1/processing/stats`, mirroring `IngestionAdminController`'s shape
+    exactly. Guarded by `ServicePolicies.IngestionAdmin` reused as-is rather than a new
+    `ProcessingAdminPolicy`/`processing:admin` scope: the PRD's task text only asks for "a machine
+    JWT" (no distinct scope like TASK-017's), the one seeded service client
+    (`AuthSeedData.ServiceClientId = "gateway-ingestor"`) already carries `ingestion:admin` and is the
+    Gateway's own client for both admin surfaces (TASK-026 proxies both to the same Gateway), and
+    `Scopes` is an EF `PrimitiveCollection<string[]>` baked into `HasData` migrations - granting a
+    second scope to the seeded client would need a new Auth Service data migration, which is scope
+    creep for a task that doesn't ask for scope separation. Updated `ServicePolicies.IngestionAdmin`'s
+    doc comment to say it now guards both surfaces, with a note that a dedicated scope can be split
+    out later if the two ever need different grantees (e.g. TASK-043's least-privilege pass).
+  - `Processor.Worker/Program.cs` - added `AddControllers()`, `UseAuthentication()`/
+    `UseAuthorization()`, `MapControllers()`, and `public partial class Program;` (the
+    `WebApplicationFactory<Program>` marker every other host with an admin/browser API already has),
+    exactly mirroring the Ingestor's own Program.cs shape including its "no UseHttpsRedirection, this
+    is backend-only" comment. Registered the two new fault consumers alongside the existing two.
+  - `Processor.Worker/appsettings.json` - added an `Auth` section identical in shape to the Ingestor's
+    (Issuer/Audience/JwksUri/RequireHttpsMetadata), since Processor.Worker previously had none at all.
+
+Tests written (all compile clean via `dotnet build processor.slnf`/`WeakAppHandler.sln`; execution
+status below):
+  - `ProcessingStatsStateTests.cs` (new, pure unit, no IO) - RAN AND PASSED this session (5/5).
+  - `ProcessingStatsFaultConsumerTests.cs` (new) - uses MassTransit's in-memory `ITestHarness`
+    (`AddMassTransitTestHarness`, the same pattern `IngestionRecorderTestBus` already established) so
+    the fault-consumer wiring is provable without a real broker: a throwing stand-in consumer stands
+    in for a poisoned message, since MassTransit publishes `Fault<T>` after any consumer exception
+    regardless of what actually failed. RAN AND PASSED this session (2/2).
+  - `IngestionConsumerTests.cs` - extended the existing duplicate-delivery and failed-attempt tests
+    with `host.Stats.Snapshot()` assertions (Processed/Deduplicated), via a new `Stats` property added
+    to `ProcessorHost`. Compiles; NOT RUN this session (needs the real Postgres+RabbitMQ
+    Testcontainers, see blocker below).
+  - `ProcessorAdminHost.cs` + `ProcessingAdminEndpointsTests.cs` (new) - the REST endpoint against a
+    real Auth Service, real broker, real database, mirroring `IngestorAdminHost`/
+    `IngestionAdminEndpointsTests` (TASK-017) almost 1:1: 401 with no token, 403 with a viewer token
+    (role but no scope), and processed/deduplicated counts after publishing a duplicate readings
+    message and a failed attempt through the real bus (waited for via a `ConsumeCounter` connected to
+    `IBusControl`, the same pattern `ProcessorHost` uses). Required adding a `ProjectReference` to
+    `Processor.Worker` and (aliased `AuthApi`, to avoid the `Program` type colliding with
+    `WeakAppHandler.Auth`'s own top-level `Program` - CS0433, the exact fix already documented in
+    `WeakAppHandler.Notification.Api.Tests`/`WeakAppHandler.Gateway.Api.Tests`'s csproj comments) to
+    `WeakAppHandler.Auth`, plus the `Microsoft.AspNetCore.Mvc.Testing` package, to
+    `WeakAppHandler.Processor.Infrastructure.Tests.csproj`. Compiles; NOT RUN this session (needs
+    Testcontainers + the real Auth Service host).
+
+RECOVERY (this session): the prior session's iteration was killed after hitting a Docker Desktop
+named-pipe failure and a total PowerShell tool death, leaving the branch above fully implemented and
+compiling but never independently tested or committed. This session found that state, reviewed every
+changed/new file by hand (all sound, no design changes needed), relaunched Docker Desktop
+(`Start-Process 'C:\Program Files\Docker\Docker\Docker Desktop.exe'`, then polled `docker info` until
+the `Server:` section populated), and independently re-ran the full verification suite rather than
+trusting the prior session's own written claims:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test processor.slnf` against real Testcontainers PostgreSQL + RabbitMQ - 37/37 passed,
+    including the new `ProcessingStatsStateTests` (5), `ProcessingStatsFaultConsumerTests` (2),
+    `ProcessingAdminEndpointsTests` (3: 401 with no token, 403 with a viewer token, and the
+    processed=2/deduplicated=1/deadLettered=0 counts after a duplicate readings publish and a failed
+    attempt through the real bus), and the extended `IngestionConsumerTests` stats assertions. The
+    logged `23505 duplicate key value violates unique constraint "pk_processed_messages"` in the test
+    output is the expected idempotency path being exercised by the redelivered message, not a
+    failure.
+  - `dotnet build WeakAppHandler.sln` re-run once more after test completion - still 0/0.
+NEXT: TASK-022 (M2 end-to-end tests, priority "high") is now fully unblocked - its dependencies
+TASK-017/TASK-020/TASK-021 are all done - and is the clear next pick both by priority and because
+this session's TASK-021 pick was itself made specifically to unblock it.
