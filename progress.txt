@@ -2245,3 +2245,111 @@ reference the types added here (it must stay reference-free), so it needs its ow
 and the Api maps AlertRule/AlertRuleState onto it - and that the boolean seed rule deliberately
 carries hysteresis 0, because a boolean metric has no band to retreat through. The other unblocked
 high-priority tasks remain TASK-024 and TASK-025 on the Gateway side.
+
+[2026-09-02] TASK-028 - DONE
+Pure RuleEngine component: PRD 6.6's evaluation semantics (transition triggering, hysteresis,
+per-(rule,meter,metric) cooldown, explicit resolution) as a single pure function, plus 54 unit tests
+including the architectural test that proves the project stays reference-free.
+
+Picked because it was the only unblocked critical-priority task (TASK-027 landed its dependency last
+session) and TASK-029 sits directly behind it.
+
+Shape, in src/Notification/WeakAppHandler.Notification.RuleEngine (8 files, one type each per this
+repo's SA1402/SA1649 convention):
+  - Its own pure input types - RuleOperator / RuleDefinition / MetricObservation /
+    RuleEvaluationState - because the project must not reference the Api's domain types or Contracts.
+    RuleOperator duplicates AlertOperator's members deliberately; the Api will map between them
+    (TASK-029), and the duplication is what keeps a persistence concern from leaking into the engine.
+  - ThresholdNumeric and MetricObservation.Numeric are decimal, not double: the threshold column is
+    numeric(12,4), and comparing a binary float against it would make the engine and the database
+    disagree about what "exactly at the threshold" means - one of the two boundary cases the task
+    explicitly asks to be tested. TASK-029 converts ReadingStored's double once, at the boundary.
+  - No clock: MetricObservation.ObservedAt is also the instant cooldown is measured from, so every
+    decision is reproducible from its arguments alone. That is what makes the boundary cases
+    arithmetic rather than integration scenarios.
+  - AlertRuleEngine.Evaluate returns RuleDecision { Kind, Reason, IsBreaching }. Kind is what to do
+    (None/Raise/Resolve); Reason (Raised/Resolved/NotApplicable/NoTransition/AlertAlreadyActive/
+    CooldownActive/WithinHysteresisBand/NotBreaching) exists because "no alert" has seven very
+    different causes, and telling them apart is the difference between a working suppression policy
+    and a lost alert - the tests assert on Reason, since the mere absence of an alert satisfies every
+    branch equally. IsBreaching is returned rather than left to the caller to recompute: it is exactly
+    what belongs in alert_rule_state.was_breaching, and a caller deriving it a second time could
+    disagree with the decision it is storing it alongside.
+  - AlertRuleEngine.Matches covers rule scoping (enabled + metric + optional location/meterType where
+    null means any). Case-insensitive on purpose: those strings pass through the wire payload, the
+    Processor's meter registration and an operator typing into the TASK-030 form, and a rule that
+    matches nothing because of a capital letter produces no alerts AND no errors.
+
+Four decisions worth knowing before TASK-029 builds on this:
+  1. wasBreaching is read from persisted state, NOT recomputed from the event's previousValue the way
+     PRD 6.6's pseudocode does. After a restart the previous value is whatever the next poll happens
+     to report, while the stored flag still knows the window is open - so the pseudocode's version
+     would re-raise an alert for a breach that is already active.
+  2. A transition swallowed by cooldown still records the breach, so the alert is DROPPED, not queued.
+     The alternative (leaving was_breaching false) fires the moment the window closes, which turns a
+     rate limit into a delayed duplicate. Pinned by
+     Evaluate_BreachSwallowedByCooldown_DoesNotFireLateOnTheNextReading.
+  3. The hysteresis band's direction follows the operator: an upper bound (gt/gte) clears downwards at
+     threshold - margin, a lower bound (lt/lte) clears upwards at threshold + margin, and eq clears
+     symmetrically once |value - threshold| >= margin. Getting the sign wrong on the lt family is the
+     classic form of this bug and it is SILENT - the band lands on the breaching side, so the alert
+     resolves the instant it stops breaching and hysteresis appears to be configured while doing
+     nothing. The margin is a percentage of the threshold's MAGNITUDE (Math.Abs), so a negative
+     threshold keeps its band on the correct side; a zero threshold has a zero band by construction.
+  4. NotApplicable is a third answer, distinct from breaching and not-breaching, and it leaves
+     was_breaching untouched instead of writing false - clearing it there would fake a transition on
+     the next reading that can actually be compared. It covers: a numeric rule against a boolean
+     metric and the reverse, a rule with both or neither threshold (the check constraint should
+     prevent that - the engine refuses to guess rather than hide a bypassed constraint), and any
+     ordering operator on a boolean rule. That last one matters: `false < true` is true in CLR terms,
+     so a naive comparison would make an `lt true` rule on motion breach on every quiet poll.
+
+Boolean metrics have no band at all - they resolve as soon as the value stops matching, whatever
+hysteresis_percent happens to say, so a stray margin cannot trap the Garage motion alert open forever.
+
+Testing - new tests/WeakAppHandler.Notification.RuleEngine.Tests (54 tests, added to
+WeakAppHandler.sln and to notification.slnf), xunit only, no infrastructure of any kind:
+  - RuleEngineDriver feeds a sequence of observations through the engine keyed on (meterId,
+    metricCode) - the same composite key as alert_rule_state - carrying state forward the way
+    TASK-029's consumer will have to. That is what makes the per-meter cooldown scope observable in a
+    unit test: a suppression leaking across meters shows up here as a missing alert rather than only
+    in an integration test. TASK-029 can read the driver as the reference state machine
+    (was_breaching = IsBreaching; the active flag flips on Raise/Resolve; last_triggered_at advances
+    only on Raise).
+  - Transitions: eight polls of which seven breach produce exactly one Raise (level-triggered
+    alerting would produce seven); threshold boundaries for gt/gte/lt/lte asserted from both sides at
+    +/-0.0001; the resolve path fires once and then stays quiet.
+  - Hysteresis: an oscillating series produces one Raise and zero Resolves; the 950 edge of a
+    threshold-1000/5% rule asserted at 949.9999 / 950 / 950.0001; the lt-family band asserted above
+    its threshold; zero margin, zero threshold, negative threshold and the symmetric eq band covered.
+  - Cooldown: the 300s boundary at 299/300/301, per-meter independence, never-triggered-before,
+    negative cooldown treated as none, and the swallowed-not-deferred case above.
+  - Architecture: two complementary checks, because neither alone is sufficient. The csproj is parsed
+    (XDocument) and asserted to declare no PackageReference/ProjectReference/Reference/
+    FrameworkReference - the compiler drops unused references from the assembly manifest, so a
+    declared-but-idle dependency would be invisible at runtime. And the loaded assembly's
+    GetReferencedAssemblies must be entirely System*/netstandard/mscorlib - references inherited from
+    Directory.Build.props never appear in this csproj at all, which is how the second check also
+    confirms (rather than assumes) that the repo-wide StyleCop.Analyzers reference contributes no
+    runtime dependency.
+
+Deliberately NOT done here, to keep this task's scope: no mapping from the Api's AlertRule/
+AlertRuleState onto the engine's records, and no consumer. That is TASK-029, and whoever takes it
+needs to map AlertOperator -> RuleOperator, ReadingStored's MetricValue (double?/bool?) ->
+MetricObservation (decimal?/bool?), and alert_rule_state plus "is there an active alert" ->
+RuleEvaluationState, then persist the RuleDecision exactly as RuleEngineDriver does.
+
+VERIFIED: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings / 0 errors
+(TreatWarningsAsErrors + StyleCop). `dotnet build notification.slnf` -> 0/0. `dotnet test
+notification.slnf` -> 69/69 (54 new + 15 existing). `dotnet test WeakAppHandler.sln` -> 162/162 across
+all nine test assemblies (Docker Desktop running for the Testcontainers suites). Not a frontend
+change, so npm checks do not apply.
+  - tasks.json: TASK-028 status -> "done".
+
+NEXT: TASK-029 (ReadingStored consumer: match rules, evaluate, persist alerts and alert_rule_state,
+dispatch alert events in-process) is unblocked and critical-priority - it is the direct continuation,
+and the mapping list plus the reference state machine above are what it needs. Note TASK-027's warning
+that alerts -> alert_rules is FK Restrict, and that the partial unique index on (rule_id, meter_id,
+metric_code) WHERE status = 'active' means the database itself rejects a second active alert - so the
+engine's AlertAlreadyActive branch is the fast path, not the only guard. TASK-024 and TASK-025
+(Gateway aggregations / GraphQL hardening) remain the other unblocked high-priority tasks.
