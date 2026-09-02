@@ -5,10 +5,17 @@
     <PackageReference Include="HotChocolate.AspNetCore" />
     <PackageReference Include="HotChocolate.Data" />
     <PackageReference Include="HotChocolate.Data.EntityFramework" />
+
+    <!-- TASK-032: ReadingStoredSubscriptionConsumer is an adapter onto the queue and lives in this
+         project, same reasoning as Notification's own ReadingStoredConsumer - only the
+         transport-agnostic package is referenced, because which exchange/queue it binds to is
+         ServiceDefaults' topology to decide. -->
+    <PackageReference Include="MassTransit" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WeakAppHandler.Gateway.Infrastructure\WeakAppHandler.Gateway.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
     <ProjectReference Include="..\..\SharedKernel\WeakAppHandler.SharedKernel\WeakAppHandler.SharedKernel.csproj" />
     <ProjectReference Include="..\..\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
   </ItemGroup>

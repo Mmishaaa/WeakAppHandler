@@ -36,7 +36,8 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task DeeplyNestedQuery_IsRejectedWithAnExecutionDepthError()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, environment: "Development");
+        using var factory = GatewayApiFactory.Create(
+            fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
         using var client = factory.CreateClient();
 
         var body = await GraphQlClient.PostExpectingRejectionAsync(client, DeeplyNestedIntrospectionQuery);
@@ -52,7 +53,8 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task Introspection_InAProductionLikeEnvironment_IsRefused()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, environment: "Production");
+        using var factory = GatewayApiFactory.Create(
+            fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Production");
         using var client = factory.CreateClient();
 
         var body = await GraphQlClient.PostExpectingRejectionAsync(client, "{ __schema { queryType { name } } }");
@@ -65,7 +67,8 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task Introspection_InDevelopment_Succeeds()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, environment: "Development");
+        using var factory = GatewayApiFactory.Create(
+            fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
         using var client = factory.CreateClient();
 
         var body = await GraphQlClient.PostAsync(client, "{ __schema { queryType { name } } }");
@@ -82,7 +85,8 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task OrdinaryShallowQuery_IsNotAffectedByTheDepthLimit()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, environment: "Development");
+        using var factory = GatewayApiFactory.Create(
+            fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
         using var client = factory.CreateClient();
 
         var body = await GraphQlClient.PostAsync(client, "{ meters { id location currentValues { metricCode } } }");
