@@ -10,8 +10,15 @@ namespace WeakAppHandler.Gateway.Api.Tests;
 /// </summary>
 internal static class GatewayApiFactory
 {
-    public static WebApplicationFactory<Program> Create(string connectionString) =>
+    /// <param name="connectionString">Postgres connection string the Gateway's read-only context binds to.</param>
+    /// <param name="environment">
+    /// Defaults to Development, matching every test written before TASK-025 needed to care - most of
+    /// what this factory builds (GraphQL query behaviour) does not depend on it. TASK-025's own tests
+    /// pass "Production" to reach the introspection-disabled configuration a real deployment runs
+    /// under, since <c>IHostEnvironment.IsDevelopment()</c> is the only thing that switches it.
+    /// </param>
+    public static WebApplicationFactory<Program> Create(string connectionString, string environment = "Development") =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
-            .UseEnvironment("Development")
+            .UseEnvironment(environment)
             .UseSetting("ConnectionStrings:Gateway", connectionString));
 }

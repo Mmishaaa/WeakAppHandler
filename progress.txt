@@ -2455,3 +2455,101 @@ AddAlerting's TryAddSingleton, which is exactly why that registration is a TryAd
 TASK-025 (Gateway aggregations / alerts queries) are the other unblocked high-priority tasks;
 whoever takes TASK-024 should note TASK-023's lesson that HotChocolate's [UseProjection] needs a
 parameterless constructor on the projected type.
+
+[2026-09-02] TASK-025 - DONE
+Gateway: GraphQL query-depth/complexity limiting, introspection disabled outside Development, and a
+schema.graphql snapshot check for drift (PRD's GraphQL hardening pass; persisted queries and the
+CI workflow itself are explicitly out of scope here - see below).
+
+Picked up after the previous session's ralph.sh iteration was killed and its nested agent kept
+running unsupervised for 8+ minutes past the kill with zero writes reaching disk - the same
+orphaned-agent behaviour recorded in TASK-020/029's entries, but this time the agent itself appears
+to have stalled rather than lost its shell. The branch existed with an empty working tree; nothing
+was lost by starting over.
+
+Before writing any code, verified the exact HotChocolate 16.6.2 API against the real assemblies
+(Directory.Packages.props pins this version) with a disposable console app under a temp directory,
+rather than guessing from older-version documentation - HotChocolate's schema/execution API has
+moved between major versions and gueesing wrong here fails silently at runtime, not at compile time,
+since these are all valid method names that just may not exist in the installed version. Confirmed
+by building and querying a real minimal schema:
+  - `IRequestExecutorBuilder.AddMaxExecutionDepthRule(int)` really rejects a document at validation
+    time with a GraphQL error whose extensions carry `allowedExecutionDepth`/`detectedExecutionDepth`
+    - HTTP 400, not 200-with-errors.
+  - `IRequestExecutorBuilder.DisableIntrospection(bool)` really rejects `__schema`/`__type` with a
+    distinct "Introspection is not allowed" error - also HTTP 400.
+  - `IRequestExecutorProvider.GetExecutorAsync(name)` (resolvable from `WebApplicationFactory.Services`
+    once something forces the host to build) hands back `IRequestExecutor.Schema.ToString()`, which
+    IS the SDL - confirmed by actually printing one, not by assuming a HotChocolate v13-era `.Print()`
+    extension still exists in v16 (it does not; the type moved and the method is gone).
+
+Implementation (src/Gateway/WeakAppHandler.Gateway.Api/):
+  - GraphQLSecurityLimits.MaxExecutionDepth = 12, a named constant rather than a literal in Program.cs
+    - the real domain schema's deepest legitimate selection today is 3 (meters -> currentValues ->
+      field), so 12 is headroom for TASK-024/026/032's additions, not a number tuned to the test.
+  - Program.cs: `.AddMaxExecutionDepthRule(GraphQLSecurityLimits.MaxExecutionDepth)` with
+    `skipIntrospectionFields` left at its default (false) - introspection depth is deliberately
+    COUNTED, not exempted, because `__Type.ofType`/`__Field.type` mutually recursing is the classic
+    depth-limit bypass a real attacker would reach for; exempting it would have defeated the rule's
+    own purpose the moment DisableIntrospection was ever misconfigured or bypassed.
+  - `.DisableIntrospection(disable: !allowIntrospection)` where `allowIntrospection` is
+    `builder.Environment.IsDevelopment()` captured ONCE at startup - not the IServiceProvider-based
+    overload, since the environment cannot change for the life of the process and resolving it per
+    request would be indirection with no behavioural difference.
+  - `.ModifyRequestOptions(o => o.IncludeExceptionDetails = ...)` from TASK-023 kept as-is; unrelated
+    to this task, listed here only because it now sits next to the two new calls in the chain.
+
+Persisted queries were deliberately NOT implemented. The task's acceptance_criteria and test_steps -
+the actual testable bar - name only depth-limiting, introspection, and the schema snapshot; the
+description's own wording says the GraphQL surface "will be supplemented after TASK-032 adds
+subscriptions/alerts," which reads as persisted queries belonging to a later hardening pass once the
+schema stops moving. More concretely: HotChocolate's persisted-operations pipeline in "require
+persisted" mode rejects any operation that arrives as a raw query string, which is how every existing
+Gateway test (and every real ad-hoc GraphiQL session in Development) talks to this API - enabling
+enforcement now would need an operation-document store, a build-time hash-extraction step, and a
+rewrite of every existing test's request shape, none of which any acceptance criterion here asks for.
+Left as a clearly-flagged gap rather than a speculative implementation with zero test coverage.
+
+The schema-drift check is a test, not a CI workflow, because no CI infrastructure exists in this
+repository yet - TASK-049 is what adds GitHub Actions workflows at all. SchemaSnapshotTests.
+Schema_MatchesTheCommittedSnapshot IS the check the acceptance criterion describes: it resolves the
+live IRequestExecutor the same way the running service would, compares its SDL against
+src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql, and fails loudly - with the live SDL written
+to a sibling .received file for diffing - on any divergence, committed or not. TASK-049 only has to
+point a workflow at `dotnet test gateway.slnf`; the check itself does not need to be reinvented as a
+shell script. Locates the repository root via `[CallerFilePath]` on its own source file rather than
+a hardcoded path or the test host's working directory, which is what makes it correct unmodified on
+a CI runner that checked the repo out somewhere completely different from this machine.
+
+Testing - 4 new tests in tests/WeakAppHandler.Gateway.Api.Tests/GraphQlHardeningTests.cs, plus the
+schema-snapshot test:
+  - The depth-limit test exploits `__Type.ofType`/`__Field.type` recursion (ten levels of nested
+    `ofType`) rather than adding a recursive field to the domain schema for the sole purpose of
+    having something to test against. Run against Development (introspection allowed) specifically
+    so a rejection is unambiguously the depth rule and not the separate introspection guard firing
+    for an unrelated reason.
+  - Introspection tests cover both directions explicitly (refused in "Production", succeeds in
+    "Development") rather than only the negative case, since a hardening feature that quietly also
+    broke local development would be its own kind of regression.
+  - A shallow, ordinary domain query (`meters { currentValues { ... } }`) is asserted to still
+    succeed under the same limit, so nothing here proves only "the limit exists" without also proving
+    it does not clip real traffic.
+  - GatewayApiFactory gained an optional `environment` parameter (default "Development", so every
+    test written before this task is unaffected) - the introspection tests are what need "Production".
+  - GraphQlClient gained PostExpectingRejectionAsync alongside the existing PostAsync: a
+    document-validation failure (depth, introspection) is HTTP 400 in HotChocolate 16, unlike the
+    argument-level pageSize>100 validation TASK-023 tested, which answers 200-with-errors - the
+    existing PostAsync's EnsureSuccessStatusCode() would have thrown before either new test could
+    read the body it actually wants to inspect.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 181/181 passed across all nine test assemblies. The
+Gateway assembly (9 tests, up from 4) was run three times in a row with zero failures.
+  - tasks.json: TASK-025 status -> "done".
+
+NEXT: TASK-024 (Gateway aggregations, high) is the natural continuation of this same project -
+whoever takes it should remember TASK-023's [UseProjection]-needs-a-parameterless-constructor lesson
+for any new read model, and should know MaxExecutionDepth may need revisiting once aggregation
+buckets add a real layer of nesting to the schema. TASK-031 (SignalR AlertsHub) and TASK-032
+(alerts/alertRules GraphQL + subscription) are the other unblocked high-priority tasks; TASK-032 is
+explicitly what this task's own persisted-queries deferral was written anticipating.
