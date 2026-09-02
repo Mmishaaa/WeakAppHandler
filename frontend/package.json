@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@apollo/client": "^4.2.12",
+    "@microsoft/signalr": "^10.0.11",
     "graphql": "^16.14.2",
+    "graphql-ws": "^6.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3"

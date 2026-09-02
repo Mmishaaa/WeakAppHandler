@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { ConnectionStatusBadge } from '../../shared/realtime/ConnectionStatusBadge'
 import { NAV_ITEMS } from './nav-items'
 import { RouteAnnouncer } from './RouteAnnouncer'
 import './app-shell.css'
@@ -22,6 +23,7 @@ export function AppShell() {
             ))}
           </ul>
         </nav>
+        <ConnectionStatusBadge />
       </header>
       <main id="main-content" className="app-shell__main" tabIndex={-1}>
         <Outlet />

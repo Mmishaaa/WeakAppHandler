@@ -30,3 +30,23 @@ Feature-sliced:
 so codegen works with no backend running. It uses the `client-preset`, so components use Apollo's
 `useQuery`/`useMutation` directly against a `graphql()`-tagged, fully-typed `TypedDocumentNode` —
 there are no separate generated hook functions to keep in sync.
+
+## Realtime
+
+Two independent transports, kept strictly separate so one logical event is never handled twice:
+
+- `shared/realtime/apolloClient.ts` — Apollo Client with an HTTP link (queries/mutations) split
+  from a `graphql-ws` link (the `onReadingStored` subscription) by operation type. Consume the
+  subscription only through `useOnReadingStoredSubscription` (`shared/realtime/
+  useOnReadingStoredSubscription.ts`) — it's the one place allowed to subscribe to it.
+- `shared/realtime/alertsHubClient.ts` — a SignalR connection to the Notification Service's
+  `AlertsHub` (`AlertRaised`/`AlertResolved`). Consume it only through `useAlertsHub`
+  (`shared/realtime/useAlertsHub.ts`).
+
+Both auto-reconnect and expose their connection status; `ConnectionStatusBadge` (rendered in
+`AppShell`'s header) shows the worse of the two. `useAlertsHub`'s `onReconnected` callback fires
+only after an actual reconnect (never the first connect) — screens that list alerts should use it
+to refetch, since a dropped connection can miss events a persisted list needs to catch up on.
+
+Copy `.env.example` to `.env.local` to point either transport at a non-default URL (defaults match
+the Gateway/Notification `https` `dotnet run` profiles).

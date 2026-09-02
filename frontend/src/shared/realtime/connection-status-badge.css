@@ -1,0 +1,44 @@
+.connection-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.connection-status-badge__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.connection-status-badge--connected {
+  color: var(--color-text);
+}
+
+.connection-status-badge--connected .connection-status-badge__dot {
+  background: var(--color-accent);
+}
+
+.connection-status-badge--connecting .connection-status-badge__dot,
+.connection-status-badge--reconnecting .connection-status-badge__dot {
+  animation: connection-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes connection-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-status-badge__dot {
+    animation: none;
+  }
+}
