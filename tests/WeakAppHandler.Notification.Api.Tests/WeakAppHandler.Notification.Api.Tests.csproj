@@ -10,6 +10,9 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <!-- Test-only: drives AlertsHub (TASK-031) as a real SignalR client rather than resolving the
+         hub's DI-registered pieces directly. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
   </ItemGroup>
 
   <ItemGroup>
@@ -18,6 +21,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Notification\WeakAppHandler.Notification.Api\WeakAppHandler.Notification.Api.csproj" />
+    <!-- Test-only: AlertsHub's JWT requirement (TASK-031) is proven against the real Auth Service and
+         real client-issued tokens, the same precedent WeakAppHandler.Ingestor.Tests set for TASK-017's
+         admin API, rather than a hand-signed token the Notification host was merely told to trust.
+         Aliased because both WeakAppHandler.Notification.Api and WeakAppHandler.Auth declare their own
+         top-level `Program` type for WebApplicationFactory<Program> - an unaliased second reference
+         makes every unqualified `Program` in this test project ambiguous (CS0433) the moment both
+         assemblies are on the reference list at once (the same fix TASK-032 applied to
+         WeakAppHandler.Gateway.Api.Tests for the same reason). -->
+    <ProjectReference Include="..\..\src\Auth\WeakAppHandler.Auth\WeakAppHandler.Auth.csproj" Aliases="AuthApi" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 

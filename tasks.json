@@ -583,7 +583,7 @@
         "Шаг 3: Спровоцировать resolve — убедиться в получении отдельного события resolved"
       ],
       "dependencies": ["TASK-029", "TASK-009"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-032",
