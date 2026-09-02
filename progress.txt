@@ -2980,3 +2980,151 @@ mechanism and reviewed before committing - the diff is exactly the new `aggregat
 NEXT: no critical- or high-priority task remains unblocked - this was the last one. TASK-007,
 TASK-021, TASK-030 (alert-rule admin CRUD) and TASK-033 (frontend toolchain) are all medium-priority
 and unblocked; TASK-033 starts the entirely new M5 frontend milestone and is the largest of the four.
+
+[2026-09-02] TASK-033 - DONE
+Frontend toolchain: Vite + React 19 + TypeScript, ESLint, Apollo Client, GraphQL codegen from
+schema.graphql, feature-sliced folder skeleton (PRD's M5 frontend milestone starts here).
+
+Picked this over the other three unblocked medium-priority tasks (TASK-007/021/030) because it's
+the sole gate for the entire M5 frontend milestone (TASK-034..041) and, transitively, for the
+critical-priority TASK-042 (auth/CORS finalisation) and TASK-047 (full docker-compose
+orchestration) - by far the largest unblocked chain in the backlog, even though every directly
+unblocked task this session was only "medium" priority in isolation. Branch
+`task/task-033-frontend-toolchain` created from up-to-date main (confirmed clean via `git status`/
+`git log` before the environment failure described below).
+
+What was done (all file-based; see BLOCKER below for why nothing could be verified or committed):
+  - Scaffolded `frontend/` via `npm create vite@latest frontend -- --template react-ts`
+    (React 19.2.8, Vite 8.2.2, TypeScript ~6.0.2 - this Vite version's own default template ships
+    "oxlint" as its lint tool, NOT ESLint) then `npm install` for the base scaffold - both
+    completed successfully before the shell died.
+  - `npm install --save @apollo/client graphql` - completed successfully (Apollo Client 4.2.12).
+  - `npm install --save-dev eslint @eslint/js typescript-eslint eslint-plugin-react-hooks
+    eslint-plugin-react-refresh globals` - completed successfully (confirmed after the fact:
+    `frontend/node_modules/eslint/package.json` exists). TASK-033's own description and PRD F11
+    ("Frontend workflow additionally runs ESLint...") explicitly call for ESLint, not oxlint, so
+    oxlint was swapped out rather than kept alongside it.
+  - Removed `oxlint` from `package.json` devDependencies and changed the `lint` script from
+    `"oxlint"` to `"eslint ."`; added a `"codegen": "graphql-codegen --config codegen.ts"` script.
+    `npm uninstall oxlint` was run and DID complete (confirmed after the fact:
+    `frontend/node_modules/oxlint` no longer exists) despite the shell tool reporting a bare
+    "Exit code 66" with no output for that call - worth remembering for whoever reads this: at
+    least one post-hang command still reached npm and finished its filesystem work even though
+    the wrapping shell no longer returned usable output/exit codes afterward.
+  - `eslint.config.js` added (flat config): `tseslint.config(globalIgnores(['dist', 'src/gql']),
+    { files: ['**/*.{ts,tsx}'], extends: [js.configs.recommended, tseslint.configs.recommended,
+    reactHooks.configs['recommended-latest'], reactRefresh.configs.vite], languageOptions: {
+    ecmaVersion: 2020, globals: globals.browser } })` - `src/gql` is excluded because it will hold
+    generated codegen output once that runs, which should never be hand-edited or linted.
+  - `codegen.ts` added: schema source is `../src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql`
+    (the already-committed, CI-verified Gateway schema snapshot from TASK-025/032 - NOT live
+    introspection over a running Gateway, so codegen works with no backend running), documents
+    `src/**/*.{ts,tsx}`, `ignoreNoDocuments: true` (no `.graphql`/gql-tagged operations exist yet -
+    this is an empty scaffold), output `src/gql/` via `preset: 'client'`. DESIGN DECISION: used
+    `@graphql-codegen/client-preset` (typed-document-node generation) rather than the older
+    `typescript` + `typescript-operations` + `typescript-react-apollo` plugin combo - client-preset
+    is the current GraphQL Code Generator-recommended approach for Apollo Client (Apollo's
+    `useQuery`/`useMutation` etc. infer types directly from a `TypedDocumentNode` with no separate
+    generated hook wrappers needed). If a future reviewer specifically wants literal generated hook
+    functions instead, swapping the preset is a `codegen.ts`-only change, nothing else depends on
+    the choice yet.
+  - Feature-sliced skeleton created under `frontend/src/`: `app/` (now holds the actual root
+    `App.tsx`/`App.css`, moved from Vite's default `src/App.tsx`/`src/App.css`), `features/`,
+    `entities/`, `shared/` (each with a `.gitkeep` placeholder so git tracks the empty directory -
+    `gql/` deliberately has none, since codegen itself will populate it). `src/main.tsx` updated to
+    import `./app/App.tsx` instead of `./App.tsx`.
+  - Manually added `@graphql-codegen/cli` and `@graphql-codegen/client-preset` to `package.json`
+    devDependencies as `^6.0.0` / `^5.0.0` - THESE VERSION NUMBERS ARE UNVERIFIED GUESSES. The
+    `npm install --save-dev @graphql-codegen/cli@latest @graphql-codegen/client-preset@latest` call
+    needed to actually resolve and pin real versions never completed (shell died first - see
+    below). Next session MUST run that install (or equivalent) before trusting these ranges; if
+    resolution fails, bump/adjust the majors to whatever actually publishes.
+
+NOT YET DONE / COULD NOT BE DONE (blocked - see below):
+  - `frontend/node_modules/@graphql-codegen/{cli,client-preset}` do NOT exist - the install never
+    ran. `npm run codegen` has therefore never been executed - `src/gql/` does not exist on disk
+    yet. This is TASK-033's own acceptance-criterion #2 ("GraphQL codegen генерирует типы и хуки...
+    в src/gql") and is entirely unverified.
+  - `npm run build` (tsc -b && vite build) has NEVER been run against the restructured
+    `src/app/App.tsx` + `src/main.tsx` import change - acceptance criterion #1 is unverified.
+    Reasoned through by hand (moved imports use correct relative paths, tsconfig.app.json's
+    `include: ["src"]` will still pick up every file including the now-empty `src/App.tsx`/
+    `src/App.css` stubs) but not actually compiled.
+  - `npm run lint` has never been run against the new `eslint.config.js` - unverified whether the
+    flat-config shape is even syntactically/semantically valid for the exact installed versions
+    (eslint 10.9.1, typescript-eslint 8.69.0, eslint-plugin-react-hooks 7.1.1,
+    eslint-plugin-react-refresh 0.5.6, globals 17.12.0). This config shape is the standard one
+    recent `create-vite react-ts` templates ship when ESLint (not oxlint) is chosen, but "standard
+    shape" is not the same as "confirmed working with these exact pinned versions."
+  - `frontend/src/App.tsx` and `frontend/src/App.css` (the ORIGINAL Vite-scaffolded files, now at
+    the OLD un-moved path) were emptied down to `export {}` / a blank file rather than deleted -
+    nothing imports them anymore (`main.tsx` now points at `src/app/App.tsx`), so they do not
+    break the build, but they are dead stub files that should be DELETED by whoever has a working
+    shell next (`git rm frontend/src/App.tsx frontend/src/App.css` once committed, or plain
+    deletion before the first commit). This is a direct consequence of the blocker below: this
+    session's tools have no file-delete capability at all (Edit/Write can only create or overwrite
+    content, never remove a path), and the one tool that could (`Remove-Item` via PowerShell) was
+    dead for the entire remainder of the session.
+  - `frontend/.oxlintrc.json` (left over from the original scaffold) was NOT removed for the same
+    reason - harmless (oxlint itself is no longer installed or referenced by any script) but should
+    be deleted alongside the two stub files above for cleanliness.
+
+Picked up from an iteration whose shell tool died before it could build, test, or reach git even
+once (the same recurring environment failure this file's TASK-020/024/029/031/032 entries document).
+The scaffold and package choices above are that iteration's own record, preserved as-is; verifying
+it required actual debugging - three real, independent problems surfaced only once `npm run build`/
+`npm run lint` actually ran, none visible from reading the config files alone:
+
+  1. **Codegen output failed tsc outright.** The `client-preset`'s default output uses real
+     `import { X }` for type-only imports (rejected by this scaffold's own `verbatimModuleSyntax`)
+     and a real `enum` declaration (rejected by `erasableSyntaxOnly`, a TypeScript 6 flag that
+     forbids syntax the compiler cannot erase without emitting runtime code). Fixed by passing
+     `config: { useTypeImports: true, enumsAsTypes: true }` to the `client-preset` generate entry in
+     `codegen.ts` - both are the intended knobs for exactly this mismatch, not a workaround.
+  2. **`noUnusedLocals` failed on the generated output's own top-level import**, because
+     `ignoreNoDocuments: true` means an empty scaffold's codegen run produces a `gql.ts` whose
+     `import * as types from './graphql'` has nothing yet to reference. Fixed by excluding
+     `src/gql` from `tsconfig.app.json`'s own root file set (`"exclude": ["src/gql"]`) - the same
+     "generated, never hand-checked in isolation" treatment `eslint.config.js` already gives it.
+     Once real code imports from `src/gql`, that import becomes used and it is type-checked
+     normally as a dependency of the file that imports it.
+  3. **`eslint-plugin-react-hooks@7.1.1`'s own `configs['recommended-latest']` is not flat-config
+     shaped** - its `plugins` field is a legacy string array (`["react-hooks"]`), which ESLint 10
+     rejects outright rather than auto-converting ("Oops! ... plugins key defined as an array of
+     strings"). The correctly-shaped equivalent lives one level deeper, at
+     `configs.flat['recommended-latest']` (an object keyed by plugin name) - confirmed by loading
+     the installed package directly in a `node -e` probe rather than guessing from documentation,
+     since this is exactly the kind of cross-major-version API drift that has bitten
+     HotChocolate-facing work earlier in this backlog (TASK-025/031/032's entries).
+  None of these three are specific to this codebase's conventions - all three are current, genuine
+  incompatibilities between the newest `create-vite react-ts` template's strictness defaults and
+  the graphql-codegen/eslint-plugin-react-hooks ecosystem as it exists right now.
+
+Also decided (not previously specified): `src/gql` is gitignored rather than committed, matching
+`dist/`'s own treatment as a build artifact - it is fully deterministic from the committed
+`schema.graphql` plus whatever documents exist, so committing it would only invite drift/merge
+noise for no benefit. `package.json` gained a `"prebuild": "npm run codegen"` script so `npm run
+build` alone still regenerates it first (verified: a fresh `npm install` with no `src/gql` present
+at all still builds clean via this hook). `README.md` was rewritten - the original was the
+generic Vite/oxlint boilerplate, already inapplicable to this project (oxlint was swapped for
+ESLint) and pointed at a `.oxlintrc.json` this task's own scaffolding history had already removed
+the working config for. The three genuinely stale files this session's predecessor could not delete
+(no delete-capable tool that day) - `src/App.tsx`, `src/App.css`, `.oxlintrc.json` - were removed,
+along with the demo assets (`hero.png`, `react.svg`, `vite.svg`, `public/icons.svg`) only the
+now-removed Vite marketing template content referenced. `App.tsx`/`App.css`/`index.css` were
+simplified to an actually-empty shell, matching the acceptance criterion's own wording ("собирает
+пустое приложение") rather than shipping the Vite counter-demo as this project's first real screen.
+
+VERIFIED, from a genuinely clean state (`rm -rf node_modules src/gql dist` first, matching what a
+fresh checkout/CI runner would see) rather than trusting an incremental state: `npm install` ->
+0 vulnerabilities, resolves the two hand-picked `@graphql-codegen/*` version ranges without
+conflict. `npm run build` (`prebuild` auto-runs `codegen` first) -> 17 modules transformed, 0
+TypeScript errors. `npm run codegen` standalone -> `src/gql/{gql,graphql,fragment-masking,index}.ts`
+generated. `npm run lint` -> clean. Repeated this full sequence twice more for stability given how
+many version-specific gotchas the first pass surfaced.
+  - tasks.json: TASK-033 status -> "done".
+
+NEXT: TASK-034 (high) is now unblocked and starts the actual first frontend screen work - it and
+everything through TASK-041 were gated on this task alone, which was also the reason this was
+picked over TASK-007/021/030 (still the other unblocked medium-priority tasks) despite this one's
+own nominal "medium" label.
