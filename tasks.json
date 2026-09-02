@@ -457,7 +457,7 @@
         "Шаг 3: Сравнить агрегированные значения с ручным расчётом по сырым readings"
       ],
       "dependencies": ["TASK-023"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-025",
