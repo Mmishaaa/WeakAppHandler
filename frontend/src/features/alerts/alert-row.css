@@ -1,0 +1,61 @@
+.alert-row {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: 0.5rem;
+}
+
+.alert-row[data-severity='warning'] {
+  border-left-color: var(--color-severity-warning);
+}
+
+.alert-row[data-severity='critical'] {
+  border-left-color: var(--color-severity-critical);
+}
+
+/* Brief call-out for a row that just arrived via a realtime raised/resolved event - fades on its
+   own; the `data-new` attribute itself is cleared a little after the animation ends (see
+   useAlertsData's HIGHLIGHT_DURATION_MS). */
+.alert-row[data-new] {
+  animation: alert-row-highlight 3s ease-out;
+}
+
+@keyframes alert-row-highlight {
+  from {
+    box-shadow: 0 0 0 3px var(--color-accent);
+  }
+  to {
+    box-shadow: none;
+  }
+}
+
+.alert-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-row__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.alert-row__detail {
+  margin: 0.125rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.alert-row__detail--resolved {
+  color: var(--color-severity-normal);
+}
+
+.alert-row__status {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}

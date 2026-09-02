@@ -3536,3 +3536,93 @@ NEXT: TASK-037 (medium, chart components) and TASK-039 (high, Alerts screen - th
 candidate this session, and the first real consumer of `useAlertsHub`'s message handlers plus its
 `onReconnected` refetch seam) are both now further along their own dependency chains but still
 pending. TASK-007, TASK-021, TASK-030 remain the other unblocked medium-priority tasks.
+
+================================================================================
+[2026-09-03] TASK-039 - DONE
+Frontend Alerts screen: reverse-chronological alert feed with realtime raised/resolved highlight,
+status/severity filters, resolved-alert duration.
+================================================================================
+
+Picked as the highest-priority genuinely-unblocked task this session: of the pending tasks whose
+dependencies were all `done` (TASK-007/021/030/037 at "medium", TASK-039 at "high" - the rest
+gated behind TASK-021/026/030/037/041 which are still pending), TASK-039 was the sole "high"
+candidate, matching TASK-036's own NEXT note calling it out as "the other tied-highest candidate".
+Branch `task/task-039-alerts-screen` from up-to-date main. Confirmed before starting: the Gateway
+schema (`schema.graphql`) already exposes everything needed on `AlertReadModel` (location,
+meterType, metricCode, status, severity, triggeredAt/triggeredValueNumeric/triggeredValueBool,
+resolvedAt/resolvedValueNumeric/resolvedValueBool) - no backend/schema change required, this task
+is 100% frontend.
+
+What was built:
+  - `entities/alert/alertSeverityDisplay.ts` (+test) - `toDisplaySeverity`/`compareAlertSeverity`,
+    extracted out of TASK-036's `features/overview/overviewSeverity.ts` (which had this exact
+    INFO/WARNING/CRITICAL -> tile-severity mapping inlined and unexported). Alerts screen needed
+    the identical mapping for each row's `SeverityIndicator`, so rather than re-inlining a second
+    copy of the same switch statement, promoted it to a shared `entities/alert` module and had
+    `overviewSeverity.ts` import from it - `buildMeterSeverityMap`'s own behavior/exports/tests are
+    unchanged, this is a pure extraction with no behavior change (verified by `overviewSeverity.
+    test.ts` still passing unmodified).
+  - `features/alerts/alertFilters.ts` (+test) - `filterAlerts(alerts, { status, severity })`, pure
+    client-side narrowing (`'ALL'` or an exact `AlertStatus`/`AlertSeverity` match on each). Kept
+    client-side rather than pushing `status`/`severity` into the GraphQL `where` clause: the whole
+    feed is one `first: 100` fetch already (see gap note below), and filtering client-side means
+    changing a filter doesn't trigger a network round-trip.
+  - `features/alerts/alertDuration.ts` (+test) - `formatAlertDuration(triggeredAt, resolvedAt)`,
+    pure duration formatter for a resolved alert's triggered->resolved span: "45s" under a minute,
+    "5m 32s" under an hour, "1h 05m" under a day, "2d 03h" beyond that - always the two most
+    significant units so a multi-day alert isn't buried in a `HH:MM:SS`-style readout.
+  - `features/alerts/{AlertsFilterBar,AlertRow,AlertsContent}.tsx` (+css, +AlertsContent.test.tsx)
+    - the presentational layer. `AlertsContent` is the pure, query-unaware piece (data + now +
+    filters + highlightedIds as props, same split OverviewContent established) so it could be unit-
+    tested with plain RTL - covers server-order rendering, status/severity filtering individually
+    and combined, the empty-filtered-list message, the resolved-duration line, the `data-new`
+    highlight attribute, and the filter `<select>` wiring via `@testing-library/user-event`.
+    `AlertRow` reuses `MeterTile`'s established pattern of a `data-severity` attribute for CSS
+    (INFO/WARNING both render the "warning" tile color via `alertSeverityDisplay`, distinguished
+    only by the `SeverityIndicator`'s text label, never by color alone) plus a `data-new` attribute
+    that drives a 3s CSS highlight animation (`alert-row.css`) for a row just surfaced by a realtime
+    event - a plain visual call-out, not a toast/banner, so it doesn't fight the existing
+    `AsyncBoundary` staleness banner for attention.
+  - `features/alerts/useAlertsData.ts` - the `AlertsData` query (`alerts(order: [{ triggeredAt:
+    DESC }], first: 100) { nodes { ... } }`) wired to two realtime concerns: (1) the same
+    debounce-then-refetch shape `useOverviewData` established (an `AlertRaised`/`AlertResolved`
+    event schedules a 500ms-debounced `refetch()`; an AlertsHub reconnect triggers an immediate one,
+    reusing the exact reconnect-then-refetch seam TASK-035 built), and (2) two things specific to
+    this screen - a short-lived `highlightedIds` set (`Set<string>` of alert IDs, added the instant
+    the hub event arrives and auto-removed after 3s, independent of whether the debounced refetch
+    has actually landed yet) so `AlertRow` can render its `data-new` highlight, and a screen-reader
+    announcement per event ("New critical alert in Garage: co2" / "Resolved warning alert in
+    Kitchen: humidity") via the app's shared `AnnouncerProvider` (`useAnnouncer`) - the exact
+    consumer TASK-034's own doc comment and TASK-036's entry both flagged this primitive as still
+    waiting for. New alerts land at the top of the feed "for free" because the server already
+    orders by `triggeredAt DESC` and a freshly-triggered alert's `triggeredAt` is the newest value
+    in the set - no separate client-side reordering was needed to satisfy that acceptance criterion.
+  - `app/pages/AlertsPage.tsx` - rewritten from TASK-034's placeholder: `useAlertsData` + `useNow` +
+    local `filters` state (`useState<AlertFilters>`, owned by the page since `AlertsContent` is
+    pure) + `AsyncBoundary` (empty-state check is the *unfiltered* count, so "no alerts have ever
+    fired" and "current filter combination matches nothing" are two distinct, correctly different
+    messages - the former is `AsyncBoundary`'s empty state, the latter is `AlertsContent`'s own
+    "No alerts match the current filters." line).
+
+Known gap carried forward (not fixed here, flagged for whoever touches it next): `alerts` is fetched
+as a single `first: 100` page with no pagination UI, same ceiling TASK-036's own entry already noted
+for the Overview header's alert count - fine at this project's seed scale (5 rules, 18 meters) but
+would silently truncate past 100 total alerts (active+resolved combined, since this screen fetches
+all statuses unlike Overview's active-only query). Whoever adds real pagination or a `totalCount`
+field to the Gateway schema should revisit both call sites together.
+
+VERIFIED: `npm run codegen` -> clean (new `AlertsData` query typed and generated into the
+gitignored `src/gql/`, no `schema.graphql` change needed since no new field was added to the
+Gateway schema). `npm run lint` -> clean. `npm run build` (`tsc -b && vite build`, via `prebuild`'s
+codegen) -> 0 TypeScript errors, 647 modules transformed. `npm test` -> 17 test files, 73/73 passed,
+including all pre-existing TASK-033/034/035/036 suites still green (the `overviewSeverity.ts`
+extraction did not change `overviewSeverity.test.ts`'s outcome). No manual real-browser
+verification against a running Gateway/Notification stack (same caveat every frontend task's entry
+back to TASK-034 has applied) - `AlertsContent`'s RTL tests cover the acceptance criteria's actual
+claims (filter narrowing, resolved duration, highlight attribute) against synthetic data instead.
+  - tasks.json: TASK-039 status -> "done".
+
+NEXT: TASK-007/021/030/037 (all "medium") are the remaining genuinely-unblocked pending tasks -
+none is now clearly higher-priority than another by the same priority-then-dependency-depth
+reasoning this session and TASK-036's used. TASK-038 (History screen charts) and TASK-040
+(Administration screen) both move closer to unblocked as TASK-037/030 land.
