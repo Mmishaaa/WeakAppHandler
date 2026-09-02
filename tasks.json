@@ -529,7 +529,7 @@
         "Шаг 3: Прогнать архитектурный тест зависимостей проекта RuleEngine — убедиться в отсутствии ссылок на EF/DI/IO"
       ],
       "dependencies": ["TASK-027"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-029",
