@@ -2353,3 +2353,105 @@ that alerts -> alert_rules is FK Restrict, and that the partial unique index on 
 metric_code) WHERE status = 'active' means the database itself rejects a second active alert - so the
 engine's AlertAlreadyActive branch is the fast path, not the only guard. TASK-024 and TASK-025
 (Gateway aggregations / GraphQL hardening) remain the other unblocked high-priority tasks.
+
+[2026-09-02] TASK-029 - DONE
+Notification: ReadingStored consumer, RuleEngine applied per matching rule against alert_rule_state,
+alerts persisted and explicitly resolved with time and value, alert events dispatched in-process
+(PRD §6 F6).
+
+Resumed from an iteration whose shell tool died mid-session (every command, down to "echo hello",
+returning exit 66 with empty output - the same environment failure TASK-020's entry recorded). It had
+finished the src/ side and written the tests but could never build, run or commit them. This session
+verified the lot, fixed the two things verification turned up, and closed the task out. The design
+rationale below is that iteration's and is preserved because none of it is obvious from the diff.
+
+Implementation - src/Notification/WeakAppHandler.Notification.Api/Alerting/ (7 files):
+  - AlertEvaluator: loads the enabled rules, filters them through AlertRuleEngine.Matches, loads
+    alert_rule_state and the open alerts for this (meter, metric), evaluates each rule, and writes
+    alerts + state in ONE SaveChanges so an alert and the state row saying it was raised cannot
+    disagree. Returns AlertRaised/AlertResolved instead of announcing them.
+  - ReadingStoredConsumer: IConsumer<ReadingStored>, dispatching what the evaluator returned.
+    Dispatch lives here rather than in the evaluator precisely so it can only happen after the commit
+    - a subscriber told about an alert a rollback then erased has no way to un-see it.
+  - IAlertDispatcher + LoggingAlertDispatcher: the in-process seam the task asks for. No second
+    RabbitMQ exchange, because the only subscriber is this same process's future SignalR hub;
+    publishing to an exchange whose sole consumer is the publisher buys nothing. TryAddSingleton so
+    TASK-031 replaces the default without touching AddAlerting.
+  - AlertRuleMapping, AlertEvaluationResult, AlertingServiceCollectionExtensions.
+  Program.cs calls AddAlerting() and AddServiceMassTransit with the consumer bound to
+  ReadingsTopology.StoredQueueName/StoredRoutingKey; appsettings.json gained a RabbitMq section; the
+  csproj gained an explicit MassTransit reference (the consumer is an adapter that lives here, same
+  reasoning as Processor.Infrastructure's).
+
+Decisions worth not undoing without reading why:
+  1. Rule scoping is decided in memory by AlertRuleEngine.Matches, NOT filtered in SQL. Matching is
+     case-insensitive in the engine; a SQL `metric_code = @p` would quietly disagree, and the symptom
+     of that disagreement is a MISSING alert with no error anywhere. The query narrows on is_enabled
+     only. The rule set is hand-authored and tiny; if it stops being tiny the answer is a cache
+     invalidated by TASK-030's CRUD, not a filter that can drift from the engine.
+  2. Deliberately NO processed_messages ledger in this service. A redelivered ReadingStored is
+     harmless by construction: the second evaluation reads was_breaching = true and an open alert from
+     the database, so the engine answers NoTransition/AlertAlreadyActive. The partial unique index on
+     active alerts is the backstop for two deliveries that overlap rather than follow one another, and
+     SaveAsync clears the change tracker on DbUpdateException so MassTransit's retry - which reuses
+     the same scope - can actually re-read and succeed.
+  3. triggered_at / resolved_at / last_evaluated_at all come from ReadingStored.ObservedAt, never from
+     a clock. The engine measures cooldown from the observation's own instant, so a cooldown recorded
+     against wall time would drift by exactly the queue's latency.
+  4. A NotApplicable decision writes NO alert_rule_state row at all, rather than one saying "not
+     breaching": storing a breach flag the engine never computed would fake a transition on the first
+     reading that really can be compared.
+  5. AlertRuleMapping converts ReadingStored's double to decimal at the boundary and answers null for
+     a non-finite value or one outside numeric(12,4)'s range - checked BEFORE the cast, because
+     casting a double above decimal.MaxValue throws. Null makes every numeric rule report
+     NotApplicable, a far better outcome than faulting the message into the DLQ on arithmetic.
+  6. AlertResolved carries the severity the ALERT was raised under, AlertRaised the rule's current
+     one. The two differ the moment an operator edits a rule while its alert is open.
+
+Testing - 15 new tests across 5 new files, all against a real PostgreSQL container:
+  - AlertEvaluatorTests (11): raise/resolve; per-meter cooldown independence; same-meter cooldown;
+    hysteresis holding then clearing with resolved_at/resolved_value; survival of a restart; two
+    severities raised by one reading; location scoping; a boolean reading against a numeric rule
+    writing neither alert nor state; the Garage motion SEED rule end to end; a disabled rule; and the
+    same reading twice raising once. Each uses a metric code no other rule uses
+    (AlertingDatabase.NewMetricCode) so the five seed rules - which apply to EVERY location - cannot
+    raise alongside it and turn a count assertion into something else; the boolean seed test is the
+    deliberate exception.
+  - AlertingConsumerTests (3) goes through the REAL broker and the real Program.cs, proving the
+    readings.stored binding and the dispatch actually happen: the evaluator tests would pass just as
+    happily with the consumer unregistered.
+  - Support files: NotificationHost (real Program.cs over WebApplicationFactory, only IAlertDispatcher
+    substituted), RecordingAlertDispatcher, StoredReadings. StoredReadings fills previousValue/
+    isChanged but no alerting test asserts on them, and that is the point: §6.6's pseudocode derives
+    the transition from the event's previous value while this service derives it from
+    alert_rule_state, and a test that passed only because the event carried the right previous value
+    would not notice the stored flag being ignored.
+
+Two things verification turned up, both fixed here:
+  1. NotificationHostTests demanded HTTP 200 from /health/ready on the first call and got 503. Not a
+     regression - the correct new behaviour: Program.cs now builds a bus, MassTransit contributes its
+     own "ready"-tagged health check, and the bus connects in the BACKGROUND (TASK-012 deliberately
+     left WaitUntilStarted off in production, since a service refusing to start over a briefly
+     unreachable broker is the worse failure). Readiness is therefore eventually consistent, so the
+     test now polls until healthy with a bounded timeout and reports the response body on timeout -
+     which is what an orchestrator's probe does anyway, and keeps "the bus was still connecting"
+     distinguishable from a real failure in another check. The prior iteration had described this fix
+     in its own notes; the edit never reached disk.
+  2. AlertingDatabase.NewMetricCode had redundant parentheses around an interpolated string before
+     its range index, which StyleCop rejects (SA1119). One-character fix.
+  Note AlertingDatabase.NewRule's new hysteresis/cooldown parameters default to AlertRule.Default*
+  and NOT to zero, on purpose: AlertRuleConstraintTests asserts the store defaults still apply, and
+  assigning the same value keeps TASK-027's EF sentinel behaviour intact.
+
+VERIFIED: `dotnet build WeakAppHandler.sln` -> 0 warnings / 0 errors (TreatWarningsAsErrors +
+StyleCop). `dotnet test WeakAppHandler.sln` -> 176/176 passed across all nine test assemblies
+(Docker Desktop running; Testcontainers PostgreSQL + RabbitMQ). The Notification assembly (29 tests)
+was run twice.
+  - tasks.json: TASK-029 status -> "done".
+
+NEXT: TASK-031 (SignalR AlertsHub, high) is now unblocked and is close to a one-file change on the
+seam this task left for it - implement IAlertDispatcher over IHubContext and register it ahead of
+AddAlerting's TryAddSingleton, which is exactly why that registration is a TryAdd. TASK-024 and
+TASK-025 (Gateway aggregations / alerts queries) are the other unblocked high-priority tasks;
+whoever takes TASK-024 should note TASK-023's lesson that HotChocolate's [UseProjection] needs a
+parameterless constructor on the projected type.

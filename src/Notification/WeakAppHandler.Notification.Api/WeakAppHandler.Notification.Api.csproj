@@ -2,6 +2,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+
+    <!-- The ReadingStored consumer is an adapter onto the queue and lives in this project; only the
+         transport-agnostic package is referenced, because which exchange and queue it binds to is
+         ServiceDefaults' topology to decide. -->
+    <PackageReference Include="MassTransit" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />

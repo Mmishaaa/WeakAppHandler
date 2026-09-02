@@ -547,7 +547,7 @@
         "Шаг 3: Опубликовать возврат значения ниже порога-hysteresis для метра A — проверить переход alert в resolved"
       ],
       "dependencies": ["TASK-028", "TASK-020"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-030",
