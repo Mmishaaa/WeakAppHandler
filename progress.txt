@@ -3065,6 +3065,146 @@ NOT YET DONE / COULD NOT BE DONE (blocked - see below):
     session's tools have no file-delete capability at all (Edit/Write can only create or overwrite
     content, never remove a path), and the one tool that could (`Remove-Item` via PowerShell) was
     dead for the entire remainder of the session.
+
+================================================================================
+TASK-035: Frontend realtime client - SignalR AlertsHub + graphql-ws onReadingStored,
+auto-reconnect with visible status, reconnect-then-refetch seam, strict channel separation
+================================================================================
+
+Picked as the highest-priority unblocked task (all pending tasks above it in priority - notably
+TASK-042 "critical" - are gated behind later frontend/auth milestones this branch does not touch).
+Branch: task/task-035-realtime-client, from up-to-date main.
+
+Confirmed before starting: no ApolloClient instance existed anywhere yet (TASK-033 only wired the
+toolchain/codegen; App.tsx had no ApolloProvider) - so this task also had to build the GraphQL
+client itself, not just its subscription transport, to have anywhere to plug graphql-ws into.
+Read the Notification/Gateway Program.cs and the AlertsHub/SignalRAlertDispatcher source to get the
+real wire shapes right: hub route is `/hubs/alerts`, dispatcher broadcasts via
+`Clients.All.SendAsync("AlertRaised"/"AlertResolved", <AlertRaised|AlertResolved contract record>)`
+with no cross-process backplane (single-replica only, matching the ADR already on file). Gateway's
+Program.cs confirmed the WS transport rides the same `/graphql` endpoint HTTP does
+(`app.UseWebSockets()` ahead of `MapGraphQL()`).
+
+Installed `@microsoft/signalr` (resolved ^10.0.11) and `graphql-ws` (resolved ^6.2.1) - real
+resolved versions from a real `npm install`, not guessed ranges.
+
+What was built (all under `frontend/src/shared/`):
+  - `config/runtimeConfig.ts` + `.env.example` - the two backend URLs (Gateway GraphQL HTTP+WS,
+    Notification's alerts hub), defaulting to the `https` `dotnet run` launchSettings profiles
+    (7069/7031) rather than docker-compose, since TASK-047 hasn't put either service in the
+    compose stack yet. Override via `.env.local` (gitignored by Vite's own `*.local` rule already
+    in place).
+  - `auth/accessTokenStore.ts` - a deliberately tiny module-level `getAccessToken`/`setAccessToken`
+    seam (defaults to `null`) shared by both transports below, so TASK-041's login flow has one
+    place to plug a real token into instead of touching either transport again. Until then every
+    backend service falls back to its own `Auth:DevBypassEnabled` dev-bypass (confirmed by reading
+    ServiceAuthenticationExtensions.cs - defaults to `false`, so a service actually needs
+    `Auth:DevBypassEnabled=true` set locally, e.g. via `ASPNETCORE_Auth__DevBypassEnabled` env var,
+    to accept unauthenticated dev traffic; not committed anywhere, so whoever runs the backend
+    services locally for manual QA of this feature needs to set that themselves until TASK-041/042
+    land).
+  - `realtime/connectionStatus.ts` - the `ConnectionStatus` union
+    (`connecting|connected|reconnecting|disconnected`) plus a pure `combineConnectionStatus`
+    (worse-of-two) used to fold both channels into one indicator.
+  - `realtime/alertsHubClient.ts` - one module-singleton `HubConnection` to `AlertsHub` (built, not
+    started, at import time - starting is `ensureAlertsHubStarted()`'s job, called from the hook
+    below so React's effect lifecycle - including StrictMode's deliberate double-invoke - drives
+    it idempotently rather than a raw module side effect). `withAutomaticReconnect()` (default
+    policy: PRD asks for reconnect-then-refetch behaviour, not a bespoke backoff schedule).
+    Exposes `onAlertsHubStatusChange` and, critically, `onAlertsHubReconnected` - fires ONLY from
+    the real `onreconnected` event, never from the first successful connect, which is the exact
+    distinction TASK-039's future alerts list needs to know when to refetch.
+  - `realtime/useAlertsHub.ts` - the ONLY place in the app allowed to call
+    `alertsHubConnection.on('AlertRaised'|'AlertResolved', ...)`; callers pass
+    `onAlertRaised`/`onAlertResolved`/`onReconnected` as options instead of reaching into the
+    connection directly - structurally rules out the same alert event ever being wired up twice.
+  - `realtime/apolloClient.ts` - `ApolloClient` with `split()` routing subscription operations to a
+    `GraphQLWsLink` (graphql-ws `createClient`) and everything else to `HttpLink`, with a
+    `SetContextLink` reading `getAccessToken()` fresh on every request (not once at module load) so
+    a token set later by TASK-041 is picked up immediately. `lazy: false` - connects at app startup
+    rather than waiting for the first `onReadingStored` subscriber, since the status indicator
+    needs to reflect this channel's real state as soon as the app loads. Status derivation needed
+    no bespoke bookkeeping: graphql-ws's own `on.connecting(isRetry)`/`on.connected(wasRetry)`
+    callbacks already say whether a transition is a first connect or a retry.
+  - `realtime/useOnReadingStoredSubscription.ts` - the ONLY place allowed to
+    `useSubscription(ON_READING_STORED, ...)`; wraps Apollo's generated `graphql()`-tagged typed
+    document (added to codegen's input, regenerated `src/gql/`) with a small
+    `{ location?, meterType?, skip? }` options surface for TASK-036/038's future consumers. No
+    reconnect-refetch needed here unlike alerts - there's no persisted "readings list" query this
+    stream backs; graphql-ws itself resumes the live subscription automatically after a WS
+    reconnect, no hand-rolled catch-up logic required.
+  - `realtime/useRealtimeConnectionStatus.ts` + `realtime/ConnectionStatusBadge.tsx` (+ css) - folds
+    both channels via `combineConnectionStatus` into one `role="status"` badge
+    (Connecting.../Live/Reconnecting.../Offline), now rendered in `AppShell`'s header. Deliberately
+    plain neutral colors (`--color-text-muted`/`--color-accent`), NOT the severity scale - TASK-034
+    reserved `--color-severity-*` exclusively for meter/alert severity, and connection health isn't
+    that vocabulary.
+  - `app/App.tsx` now wraps everything in `<ApolloProvider client={apolloClient}>` (outermost,
+    since nothing below depends on Apollo either, but Apollo has no dependency on router/announcer).
+
+BLOCKER avoided proactively, not hit: `apolloClient.ts`'s `lazy:false` graphql-ws client and
+`alertsHubClient.ts`'s hub connection both do real (attempted) networking as a side effect of
+being imported/mounted - and `AppShell` (rendered by the pre-existing `AppShell.test.tsx` from
+TASK-034) now transitively imports `ConnectionStatusBadge`, which reaches both. Realized this
+before it could turn every existing and new test that renders `AppShell` into a flaky suite
+spending real time retrying connections to backend services that aren't running during `npm test`.
+Fixed once, centrally: `shared/testing/setup-tests.ts` now globally `vi.mock`s both
+`@microsoft/signalr` and `graphql-ws` with network-free fakes (a builder whose `build()` returns an
+inert connection object; a `createClient` that never invokes its `on` callbacks). Individual test
+files that need to actually drive status transitions (see below) override these with their own
+more precise `vi.mock` for the same specifier, which takes precedence for that file - confirmed
+this override behaviour works as expected while writing the tests, not just assumed.
+
+Tests added (all passing, see VERIFIED below):
+  - `connectionStatus.test.ts` - `combineConnectionStatus`'s worse-of-two ordering, exhaustively.
+  - `alertsHubClient.test.ts` - own precise fake `HubConnection` (mutable `state`, spy-captured
+    `onreconnecting`/`onreconnected`/`onclose`). Proves: connecting-then-connected on a successful
+    start; a concurrent second `ensureAlertsHubStarted()` call does not start a second connection;
+    the reconnect listener fires on a real reconnect but NOT on the initial connect (the exact
+    distinction the refetch seam depends on); disconnected fires on close.
+  - `useAlertsHub.test.tsx` - proves the hook registers exactly the supplied
+    `AlertRaised`/`AlertResolved` handlers on mount and removes exactly those on unmount, and
+    registers nothing when no handlers are supplied (so a status-only consumer, e.g. the badge,
+    never accidentally intercepts events meant for someone else).
+  - `apolloClient.test.ts` - captures the `on` callbacks passed to the mocked `createClient` and
+    proves the connecting(isRetry)/connected/closed -> ConnectionStatus mapping, including the
+    first-connect-vs-reconnect distinction.
+  - `ConnectionStatusBadge.test.tsx` - full-chain integration test (both transports mocked
+    together): renders the real badge, drives both fake transports independently, and asserts the
+    visible text cycles Connecting... -> Live -> Reconnecting... -> Live -> Offline - the literal
+    acceptance criterion ("UI отображает статус disconnected, затем reconnecting, затем connected
+    без действий пользователя"), just with mocked transports standing in for DevTools network
+    throttling since there is no running backend/Playwright harness in this session to exercise
+    that literally (same caveat TASK-034's own entry already applies to its focus-visibility
+    criterion).
+
+NOT done in this session (explicitly out of this task's own scope, not an oversight):
+  - The reconnect-then-refetch seam (`onAlertsHubReconnected`) has no consumer yet - there is no
+    alerts *list* query anywhere in the frontend to refetch (TASK-039 owns that screen and depends
+    on this task precisely for this reason). Verified the seam itself fires correctly in isolation;
+    TASK-039 should call `useAlertsHub({ onReconnected: refetchAlerts })` once its Alerts query
+    exists.
+  - No manual real-browser/DevTools verification of the reconnect cycle against actually running
+    Gateway/Notification services - would additionally require setting
+    `Auth:DevBypassEnabled=true` on both (see accessTokenStore.ts note above) since neither is in
+    docker-compose yet and neither has a default dev-bypass config committed. Left to whichever
+    task first exercises the full stack against a real browser (TASK-050's Playwright scenarios,
+    or manual QA before then).
+
+VERIFIED: `npm run codegen` (regenerates `src/gql/` including the new `OnReadingStored` typed
+subscription document) -> clean. `npm run lint` -> clean. `npm run build` (`tsc -b && vite build`,
+via `prebuild`'s codegen) -> 0 TypeScript errors, 613 modules transformed. `npm test` -> 8 test
+files, 28/28 passed, including the 3 pre-existing TASK-034 suites (AsyncBoundary/AppShell/
+announcer) still green with `ConnectionStatusBadge` now rendered inside `AppShell` - confirming the
+global signalr/graphql-ws test mocks actually prevent the regression they were written to prevent,
+not just in theory.
+  - tasks.json: TASK-035 status -> "done".
+
+NEXT: TASK-036 (Overview screen) is now unblocked and is the natural next consumer of both
+`useOnReadingStoredSubscription` and `ConnectionStatusBadge`'s pattern. TASK-039 (Alerts screen) is
+unblocked too and is where `useAlertsHub`'s message handlers and `onReconnected` refetch seam get
+their first real consumer. TASK-007, TASK-021, TASK-030, TASK-037 remain the other unblocked
+medium-priority tasks.
   - `frontend/.oxlintrc.json` (left over from the original scaffold) was NOT removed for the same
     reason - harmless (oxlint itself is no longer installed or referenced by any script) but should
     be deleted alongside the two stub files above for cleanliness.

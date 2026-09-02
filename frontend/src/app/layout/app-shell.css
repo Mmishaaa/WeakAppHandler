@@ -56,6 +56,10 @@
   font-weight: 600;
 }
 
+.app-shell__header .connection-status-badge {
+  margin-left: auto;
+}
+
 .app-shell__main {
   flex: 1;
   padding: 1.5rem;
