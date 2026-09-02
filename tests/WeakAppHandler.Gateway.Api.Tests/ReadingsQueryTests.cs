@@ -45,7 +45,7 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_FilteredByLocationAndOneHourWindow_ReturnsOnlyMatchingRows()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString);
+        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
         using var client = factory.CreateClient();
 
         var page = await QueryPageAsync(client, first: 100, after: null);
@@ -59,7 +59,7 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_PaginatedThroughAllPages_CursorIsStableAndCoversEveryRowExactlyOnce()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString);
+        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
         using var client = factory.CreateClient();
 
         var seenObservedAt = new HashSet<DateTimeOffset>();
@@ -90,7 +90,7 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_RequestingPageSizeAboveTheMaximum_ReturnsValidationErrorInsteadOfData()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString);
+        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
         using var client = factory.CreateClient();
 
         const string query = """

@@ -2553,3 +2553,156 @@ for any new read model, and should know MaxExecutionDepth may need revisiting on
 buckets add a real layer of nesting to the schema. TASK-031 (SignalR AlertsHub) and TASK-032
 (alerts/alertRules GraphQL + subscription) are the other unblocked high-priority tasks; TASK-032 is
 explicitly what this task's own persisted-queries deferral was written anticipating.
+
+[2026-09-02] TASK-032 - DONE
+Gateway: GraphQL subscription onReadingStored(location, meterType) fed straight from RabbitMQ, alerts/
+alertRules queries reading Notification's alerting schema, schema.graphql finalised for this pass.
+
+Picked over the other two unblocked high-priority tasks (TASK-024 Gateway aggregations, TASK-031
+SignalR AlertsHub) because it is the one that gates the frontend toolchain: TASK-033 (Vite/React/
+GraphQL-codegen skeleton) generates its types straight from this service's committed schema.graphql,
+so finishing the query/subscription surface here unblocks the entire M5 frontend chain, not just one
+more Gateway feature.
+
+Before writing any HotChocolate subscription code, verified the exact v16.6.2 API with a disposable
+console app under a temp directory (same TASK-025 precedent: guessing wrong here fails at runtime, not
+compile time) - `ITopicEventReceiver.SubscribeAsync<T>(topic, ct)` returns
+`ValueTask<HotChocolate.Execution.ISourceStream<T>>` (NOT `HotChocolate.Subscriptions.ISourceStream`,
+a plausible-looking guess that does not exist), `ISourceStream<T>.ReadEventsAsync()` returns
+`IAsyncEnumerable<T>`, `ITopicEventSender.SendAsync<T>(topic, payload, ct)`, and critically that this
+version has NO `[SubscribeAndResolve]` attribute (removed/renamed since older HotChocolate docs) - the
+working pattern is `[Subscribe(With = nameof(SubscribeMethod))]` on the resolver plus a separate method
+returning `ValueTask<ISourceStream<T>>`. `AddInMemorySubscriptions()`/`AddSubscriptionType<T>()` are
+already reachable with zero new package references (HotChocolate.AspNetCore already transitively
+carries HotChocolate.Subscriptions.InMemory).
+
+Subscription design (src/Gateway/WeakAppHandler.Gateway.Api/GraphQL/):
+  - Filtering by (location, meterType) - both optional, null meaning "any" - cannot be a check inside
+    the resolver: HotChocolate would still emit one response per event to every subscriber regardless
+    of whether the check passed, either a null payload to a non-matching subscriber or the resolver
+    silently swallowing events, neither of which is a well-behaved subscription field. Solved instead
+    with ReadingStoredTopics.Resolve(location, meterType), ONE method used by both the publishing
+    consumer and the subscribing resolver, enumerating the whole (location, meterType) filter space -
+    none/location-only/type-only/both - as distinct topic keys. Sending to a topic nobody subscribed to
+    is a no-op in HotChocolate's in-memory provider, so the publisher fans out to all four keys
+    unconditionally and pays nothing when no subscriber asked for a given combination. Upper-invariant
+    on purpose, matching the case-insensitive convention AlertRuleEngine.Matches already set for the
+    same two strings.
+  - ReadingStoredSubscriptionConsumer: a SECOND, independent MassTransit receive endpoint bound to the
+    SAME readings.stored routing key Notification's ReadingStoredConsumer already consumes (TASK-029) -
+    a topic exchange delivers a copy to every bound queue it is bound to, so this does not compete with
+    Notification for deliveries. Queue name "readings.stored.gateway", distinct from Notification's
+    "readings.stored" (ReadingsTopology.StoredQueueName) - reusing the same queue name would have both
+    services competing for one copy of each message instead of each getting their own. Converts the
+    wire double (Contracts.MetricValue) to a nullable decimal the same range-checked-before-cast way
+    AlertRuleMapping does (casting a double outside decimal's range throws OverflowException, and a
+    poll result should never fault this consumer), but does NOT round to 4 decimal places the way that
+    helper does - this is a live streamed value, not something written into a numeric(12,4) column.
+  - ReadingStoredPayload deliberately shaped like ReadingReadModel (Location/MeterType/MetricCode/
+    ValueNumeric/ValueBool/IsChanged/ObservedAt) rather than re-exposing Contracts.ReadingStored
+    directly, so a client already familiar with the `readings` query recognises the fields on
+    `onReadingStored` too.
+  - Alert events (AlertRaised/AlertResolved) are NOT on this subscription and never will be through
+    this seam - IAlertDispatcher's own doc comment (TASK-029) already says they stay in-process for
+    Notification's own SignalR hub (TASK-031, still pending); onReadingStored streams readings only,
+    per PRD F7's table.
+
+Alerts/alertRules read side (mirrors the existing GatewayReadDbContext/IGatewayReadContext pattern for
+a SECOND owning service's schema):
+  - New IGatewayAlertingReadContext (Gateway.Application/Alerting) + GatewayAlertingReadDbContext/
+    GatewayAlertingReadContext (Gateway.Infrastructure), reading `alerts`/`alert_rules` off the SAME
+    `weakapphandler` database and the SAME "Gateway" connection string as the core-schema context - one
+    physical database, two DbContexts, because the tables belong to a different owning service
+    (Notification), not because the connection differs. Own AlertStatus/AlertSeverity/AlertOperator
+    enums and AlertEntity/AlertRuleEntity classes, not references to Notification.Api.Domain - same
+    "no compile-time dependency on the schema owner" rule MeterEntity already follows for Processor's
+    tables. Own converters, storing the exact same lower-case wire codes Notification's converters
+    write (`active`/`resolved`, `info`/`warning`/`critical`, `gt`/`gte`/`lt`/`lte`/`eq`) - same column,
+    not a copy of it, so the two spellings must never diverge.
+  - REAL BUG CAUGHT BEFORE IT SHIPPED: GatewayReadDbContext.OnModelCreating originally called
+    `ApplyConfigurationsFromAssembly(typeof(GatewayReadDbContext).Assembly)`, and the new alerting
+    configurations landed in the SAME assembly (Gateway.Infrastructure). ApplyConfigurationsFromAssembly
+    is not aware of which DbContext invoked it - it just finds every IEntityTypeConfiguration<T> in the
+    assembly and applies it to whatever ModelBuilder was handed to it. Left as-is, GatewayReadDbContext's
+    model would have silently gained AlertEntity/AlertRuleEntity (and vice versa for
+    GatewayAlertingReadDbContext gaining Meter/Reading/MeterCurrentState) the moment both configuration
+    sets existed in one assembly. Fixed by switching BOTH contexts from the assembly-wide scan to
+    explicit `modelBuilder.ApplyConfiguration(new XConfiguration())` calls, one per entity that context
+    actually owns - a few more lines, but immune to this class of cross-contamination regardless of what
+    else lands in the assembly later.
+  - Query.cs gained `alerts` (paginated, [UseFiltering]/[UseSorting] over Status/Severity/Location/
+    TriggeredAt satisfies "filter by status/severity/location/time" the same generic way TASK-023's
+    readings query already satisfies its own filter list) and `alertRules` (unpaginated list, same
+    reasoning as `meters`). Default sort on `alerts` is TriggeredAt descending, matching the DB index
+    direction and PRD §6.8's reverse-chronological feed.
+
+Deploy note, NOT acted on: deploy/postgres/init/01-create-service-roles.sql's `gateway` role grant is
+`GRANT ALL PRIVILEGES ON DATABASE weakapphandler` + `GRANT ALL ON SCHEMA public` - neither actually
+grants table-level SELECT on tables owned by a different role (processor/notification) in real
+PostgreSQL, so a genuine production deployment likely cannot yet read cross-service tables at all. This
+is a PRE-EXISTING gap (the same grant already claims to let `gateway` read Processor's `meters`/
+`readings`, unverified until TASK-043's real least-privilege pass), not something this task introduced
+or could fix without doing TASK-043's job early - flagging it here since alerts/alert_rules make the
+gap concrete for a second table set. Tests never hit it: both GatewayReadDbContext and
+GatewayAlertingReadDbContext connect through the Testcontainers fixture's superuser connection, not
+through the `gateway`/`notification` role split at all.
+
+Testing - 7 new tests, all against real Postgres + RabbitMQ containers (Docker Desktop reachable this
+session, confirmed via `docker info` before committing to this task):
+  - AlertsQueryTests (3): filter by location (newest-first ordering asserted explicitly), filter by
+    status=ACTIVE excluding a resolved alert, filter by severity+triggeredAt range. Each test's rule
+    uses NotificationSchemaSeed.NewMetricCode() (a code no seed rule uses) so the five §6.6 seed rules
+    TASK-027's migration always applies cannot leak into a count assertion.
+  - AlertRulesQueryTests (2): filter by this test's own metric code returns exactly one row with every
+    field correctly mapped/converted; unfiltered query asserts >= 6 (five seed rules + this test's own)
+    rather than an exact count, since the seed rules are always present in the shared table.
+  - ReadingStoredSubscriptionTests (2): goes through the DI-resolved ITopicEventReceiver/ITopicEventSender
+    directly rather than a graphql-ws client - the WebSocket transport is HotChocolate's own tested
+    code, not something this task adds, and driving the subscription through the exact seam
+    Subscription.SubscribeToOnReadingStoredAsync itself uses is a more direct proof of the routing logic
+    than a transport round trip would be. First test: no filter arguments, receives a published
+    ReadingStored with all fields round-tripped correctly (including the double->decimal conversion).
+    Second test: subscribes to Kitchen/air_quality specifically, publishes a Garage/air_quality reading
+    FIRST then a Kitchen/air_quality one, asserts the stream's first (and only) event is the Kitchen one
+    - proving the non-matching event was never routed there at all, not read-and-discarded. Each test
+    gets its own RabbitMQ virtual host (AlertingConsumerTests' precedent) so concurrent tests cannot
+    collide on the fixed "readings.stored.gateway" queue name.
+  - NotificationSchemaSeed: seeds alert_rules/alerts via Notification's own AlertingDbContext (new
+    ProjectReference from Gateway.Api.Tests to Notification.Api, test-only, added to gateway.slnf) so
+    these tests exercise the Gateway against exactly the tables/columns production writes. The
+    reference is ALIASED (`Aliases="NotificationApi"` in the csproj) because both Gateway.Api and
+    Notification.Api declare their own top-level `Program` type for WebApplicationFactory, and an
+    unaliased second reference makes every unqualified `Program` in the test project ambiguous (CS0433)
+    the moment both assemblies are on the reference list at once. NotificationSchemaSeed.cs is the only
+    file with `extern alias NotificationApi;` - every public member takes/returns only Guid/string, so
+    the ceremony does not spread to the actual test classes.
+  - REAL BUG CAUGHT BY THIS: adding MassTransit to Gateway.Api's Program.cs (unconditionally, for the
+    new receive endpoint) meant every EXISTING Gateway test (Meters/Readings/GraphQlHardening/
+    SchemaSnapshot, none of which previously configured RabbitMq at all) would now start a background
+    bus connection attempt against the default localhost:5672/guest/guest the moment the host boots -
+    either hanging quietly against nothing, or, worse, silently binding a real queue on a developer's
+    own `docker compose up` broker if one happened to be running locally. Fixed by making
+    GatewayApiFactory.Create require a `rabbitMqConnectionString` parameter (mirroring
+    NotificationHost's pattern) and updating all 9 pre-existing call sites to pass
+    fixture.RabbitMq.ConnectionString - every Gateway test now points at the same real, ephemeral
+    Testcontainers broker the collection already spins up, never at a guessed default.
+
+Picked up from a killed iteration whose shell tool died mid-session (the same recurring environment
+failure TASK-020/TASK-029's entries documented) after it had already finished and verified the
+implementation - `dotnet build gateway.slnf`/`dotnet test gateway.slnf` -> 0 warnings, 16/16, and
+schema.graphql regenerated via SchemaSnapshotTests' own .received-file workflow - but before it could
+run the full-solution check or reach git at all. Everything above this paragraph is that iteration's
+own design record, preserved as-is since none of it is obvious from the diff; this session's own
+contribution was verifying the full solution and closing out the commit/push/PR/merge mechanics.
+
+VERIFIED (this session, full solution rather than just gateway.slnf): `dotnet build WeakAppHandler.sln`
+-> 0 warnings / 0 errors (TreatWarningsAsErrors + StyleCop). `dotnet test WeakAppHandler.sln` ->
+188/188 passed across all nine test assemblies (Docker Desktop running; Testcontainers PostgreSQL +
+RabbitMQ) - Gateway.Api.Tests alone went from 9 to 16. The Gateway assembly was run three times in a
+row with zero failures, since ReadingStoredSubscriptionTests asserts on live event delivery.
+  - tasks.json: TASK-032 status -> "done".
+
+NEXT: TASK-024 (Gateway aggregations) and TASK-031 (SignalR AlertsHub) remain the other unblocked
+high-priority tasks. TASK-032 was also the last Gateway-side blocker for TASK-033 (Frontend toolchain:
+Vite/React/TypeScript/GraphQL codegen from this service's now-finalised schema.graphql), which starts
+an entirely new M5 milestone rather than continuing to extend the Gateway.

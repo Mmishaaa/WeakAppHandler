@@ -21,6 +21,12 @@
     <!-- Test-only: seeds realistic rows into the same core schema via the service that actually
          owns and migrates it, rather than duplicating migrations the Gateway itself must never run. -->
     <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
+    <!-- Test-only, same reasoning: seeds alerts/alert_rules via Notification's own AlertingDbContext
+         and its migrations, which the Gateway itself must never run either. Aliased: both this
+         project and Notification.Api declare their own top-level `Program` (for WebApplicationFactory),
+         and an unaliased second reference makes every unqualified `Program` in this test project
+         ambiguous (CS0433) the moment both assemblies are on the reference list at once. -->
+    <ProjectReference Include="..\..\src\Notification\WeakAppHandler.Notification.Api\WeakAppHandler.Notification.Api.csproj" Aliases="NotificationApi" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 

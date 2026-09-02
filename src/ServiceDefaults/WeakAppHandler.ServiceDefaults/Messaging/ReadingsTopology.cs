@@ -19,9 +19,11 @@ public static class ReadingsTopology
     public const string AttemptRoutingKey = "readings.attempt";
 
     /// <summary>
-    /// Published by the Processor once per stored metric (PRD §6 F3/TASK-020). No receive endpoint
-    /// binds to this routing key yet — the Notification service's rule engine (TASK-029) is its
-    /// first real consumer — so only the publish side of the topology is configured for it so far.
+    /// Published by the Processor once per stored metric (PRD §6 F3/TASK-020). Bound by two
+    /// independent receive endpoints on the topic exchange, each on its own queue: Notification's
+    /// rule engine (TASK-029) and the Gateway's <c>onReadingStored</c> subscription bridge
+    /// (TASK-032). A topic exchange delivers a copy to every bound queue, so neither competes with
+    /// the other for a given message.
     /// </summary>
     public const string StoredRoutingKey = "readings.stored";
 

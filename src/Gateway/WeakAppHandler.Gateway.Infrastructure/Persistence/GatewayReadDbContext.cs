@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WeakAppHandler.Gateway.Infrastructure.Persistence.Configurations;
 using WeakAppHandler.Gateway.Infrastructure.Persistence.Entities;
 
 namespace WeakAppHandler.Gateway.Infrastructure.Persistence;
@@ -16,9 +17,16 @@ public sealed class GatewayReadDbContext(DbContextOptions<GatewayReadDbContext> 
 
     public DbSet<MeterCurrentStateEntity> MeterCurrentStates => Set<MeterCurrentStateEntity>();
 
+    // Applied one by one rather than via ApplyConfigurationsFromAssembly: since TASK-032 added a
+    // second read-only DbContext (GatewayAlertingReadDbContext) to this same assembly, an
+    // assembly-wide scan would pull that context's alerting configurations into this context's
+    // model too (and vice versa) - EF Core's scan is not aware of which DbContext it was invoked
+    // from, only of the assembly it was pointed at.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(GatewayReadDbContext).Assembly);
+        modelBuilder.ApplyConfiguration(new MeterEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new ReadingEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new MeterCurrentStateEntityConfiguration());
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
