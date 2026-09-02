@@ -1,8 +1,10 @@
+using WeakAppHandler.Notification.Api.Persistence;
 using WeakAppHandler.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddNotificationPersistence(builder.Configuration);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
@@ -22,3 +24,5 @@ app.MapControllers();
 app.MapServiceDefaultsEndpoints();
 
 app.Run();
+
+public partial class Program;
