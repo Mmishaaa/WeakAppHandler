@@ -2133,3 +2133,115 @@ Gateway project, so they are the natural continuation; TASK-027 is the other hig
 Whoever takes TASK-024 should know the read-model lesson from TASK-023: HotChocolate's [UseProjection]
 needs a parameterless constructor on the projected type, so aggregation read models must be
 init-only-property records rather than positional ones.
+
+[2026-09-02] TASK-027 - DONE
+Notification alerting schema: AlertingDbContext over alert_rules / alerts / alert_rule_state, EF Core
+migration, and the PRD §6.6 seed rule set (PRD §7.1 plus the per-meter cooldown the architecture
+review called for).
+
+Picked over TASK-024/025 (the other two unblocked high-priority tasks) because it is the head of the
+only chain that still leads to critical work: TASK-028 (pure rule engine) and TASK-029 (ReadingStored
+consumer) are both critical and both blocked on nothing but this schema, whereas TASK-024/025 extend
+an already-working Gateway.
+
+Schema, in src/Notification/WeakAppHandler.Notification.Api/{Domain,Persistence}:
+  - alert_rules carries §7.1's columns plus a nullable meter_type, which §6.6's rule model lists but
+    the §7.1 table omits; null means "any" for both location and meter_type. operator/severity/status
+    are enums persisted through explicit ValueConverters to the lower-case codes the PRD documents
+    (gt/gte/lt/lte/eq, info/warning/critical, active/resolved) rather than EnumToStringConverter's
+    PascalCase - these columns are part of TASK-030's REST contract and of what an operator reads in
+    psql, so the two spellings must not diverge.
+  - alerts has an FK to alert_rules (same owner) and none at all on meter_id, and carries its own
+    location/meter_type/metric_code, so the feed filters without ever joining into the Processor's
+    core schema. Added triggered_value_bool/resolved_value_bool next to §7.1's numeric columns: the
+    seed rule set includes a boolean rule (motion in the Garage), so a numeric-only value column
+    could not record what actually triggered it. FK behaviour is Restrict, not Cascade - deleting a
+    rule must not erase the history raised under it. NOTE FOR TASK-030: that makes DELETE of a rule
+    that has ever fired fail at the database; disabling through is_enabled is the intended path, and
+    that endpoint should either return a 409 or soft-delete rather than surfacing a 500.
+  - alert_rule_state is keyed on (rule_id, meter_id, metric_code) - the composite key IS the cooldown
+    scope, which is the whole point of the table (a breach in the Kitchen must not silence one in the
+    Garage). It also persists was_breaching so transition detection survives a restart rather than
+    depending on the previousValue that happens to be on the next event. alert_rules.last_triggered_at
+    is still there because §7.1 lists it, but it is documented as display-only: TASK-029 must read
+    cooldown from alert_rule_state, not from the rule.
+  - Three check constraints, all defence-in-depth for TASK-028/030: exactly one of
+    threshold_numeric/threshold_bool set (a rule with neither reaches the engine un-evaluatable, and
+    the symptom of that is a MISSING alert - the hardest failure to notice in an alerting system),
+    cooldown_seconds >= 0, hysteresis_percent in [0, 100]. Plus a check that resolved_at is set iff
+    status is not active.
+  - PRD §7.1 asks for a partial index on status = 'active'; it is created UNIQUE on
+    (rule_id, meter_id, metric_code) WHERE status = 'active'. §6.6 allows at most one active alert per
+    rule and meter, so the database, not just the consumer's logic, now refuses the second one - a
+    duplicate delivery or a concurrent consumer cannot produce it.
+
+A REAL correctness bug found while reading the first scaffolded migration, not a hypothetical one:
+EF omits from its INSERT any property value equal to the sentinel (by default the CLR default) when
+the column has a store default and lets the database fill it in. All three of §7.1's defaulted
+columns are affected, and each failure is silent: hysteresis 0 -> stored as 5.00, cooldown 0 ->
+stored as 300, and is_enabled false -> stored as TRUE, so TASK-030 creating a disabled rule would
+have produced an enabled one. Fixed by pointing each property's sentinel at its own default value
+(HasSentinel(5.00m) / (300) / (true)): the omission then writes the identical number, while 0/0/false
+are sent explicitly. HasSentinel(null) does not work here - EF rejects it for non-nullable value
+types. Two tests pin this down (zero/zero/false round-trip; untouched values still take the PRD
+defaults).
+  - HasData does NOT honour that sentinel - it is design-time and drops seed values equal to the CLR
+    default independently - so the Garage rule's deliberate hysteresis of 0 was still being left to
+    the column default. Fixed with the single hand-edit made to the scaffolded migration file
+    (hysteresis_percent written explicitly in that row's InsertData, commented in place). The model
+    snapshot already records 0, so the database and the snapshot agree and no phantom migration
+    follows.
+
+Seed rules use EF HasData with fixed ids and a fixed timestamp, following the AuthSeedData/
+MetricSeedData precedent: idempotent by construction (applied once, in the migration that creates the
+table), with no startup "does this rule exist yet" scan, and an operator who deletes a seed rule
+through TASK-030 keeps it deleted. Metric codes are the Processor's normalised ones (motion_detected,
+not WeakApp's wire name motionDetected - see PayloadNormalizer), and "Garage" is a location the live
+WeakApp really returns (docs/weakapp-observed-response.json).
+
+Wiring: AddNotificationPersistence (Npgsql + snake_case + ConnectionStrings:Notification, throws when
+missing, registers AddDbContextCheck tagged "ready") called from Program.cs; appsettings.json gained
+the connection string with the same placeholder-credential convention as Processor/Auth/Gateway; a
+`notification` role was added to deploy/postgres/init/01-create-service-roles.sql (TASK-043 still owns
+the real least-privilege narrowing). Program.cs gained `public partial class Program;` so
+WebApplicationFactory can boot the real host, as Auth and Gateway already do.
+
+Note on the shared migration history: this is the third DbContext against the one `weakapphandler`
+database and, like Auth's and the Processor's, it uses the default __EFMigrationsHistory table. That
+is safe - EF ignores history rows whose migration id it does not know, and the three table sets are
+disjoint - and deviating for this one context would be more surprising than consistent. Worth
+remembering only if TASK-047 ever splits the services onto separate databases.
+
+Testing - new tests/WeakAppHandler.Notification.Api.Tests (15 tests, added to WeakAppHandler.sln and
+to notification.slnf along with the IntegrationTesting harness), all against a real PostgreSQL
+container through the shared IntegrationTestFixture, never an in-memory provider - a check
+constraint, a partial unique index and a store default are exactly the things an in-memory provider
+does not have:
+  - schema: the three tables exist; the FKs on alerts/alert_rule_state reference alert_rules and
+    nothing else (asserted on the referenced table names from information_schema, not on a count, so
+    a future FK into meters would fail it); the active-alert index is UNIQUE and filtered.
+  - seed: the five §6.6 rules read back off the database (metric/operator/threshold/severity), the
+    Garage rule as a boolean rule with hysteresis 0, and a second MigrateAsync leaving five - checked
+    by name as well as by id, since a duplicate would carry a new id and slip past a count on ids.
+  - persistence: an alert written for a meter id this database has never seen (proving nothing
+    requires the Processor's row) reads its location/meter_type/metric_code straight back; a second
+    ACTIVE alert for the same (rule, meter, metric) is rejected while a new one after a resolve is
+    allowed; two meters under one rule keep separate alert_rule_state rows with independent
+    last_triggered_at.
+  - host: the real Program.cs booted twice in a row, each start answering /health/ready with 200 and
+    the seed rule set still five afterwards.
+
+VERIFIED: `dotnet build WeakAppHandler.sln --no-incremental` -> 0 warnings / 0 errors
+(TreatWarningsAsErrors + StyleCop). `dotnet test WeakAppHandler.sln` -> 108/108 passed across all
+eight test assemblies (Docker Desktop running; Testcontainers PostgreSQL + RabbitMQ). Not a frontend
+change, so npm checks do not apply.
+  - tasks.json: TASK-027 status -> "done".
+
+NEXT: TASK-028 (pure RuleEngine component - transition triggering, hysteresis including boolean
+metrics and lt/lte, cooldown per rule+meter+metric, plus the architecture test proving the project has
+zero references) is now unblocked and is the natural continuation; it is critical-priority, and
+TASK-029 sits directly behind it. Whoever takes it should know that the RuleEngine project cannot
+reference the types added here (it must stay reference-free), so it needs its own pure input record
+and the Api maps AlertRule/AlertRuleState onto it - and that the boolean seed rule deliberately
+carries hysteresis 0, because a boolean metric has no band to retreat through. The other unblocked
+high-priority tasks remain TASK-024 and TASK-025 on the Gateway side.

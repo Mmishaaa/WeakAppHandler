@@ -511,7 +511,7 @@
         "Шаг 3: Вставить тестовый alert — убедиться, что location/meterType/metricCode заполнены напрямую, без join"
       ],
       "dependencies": ["TASK-003"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-028",

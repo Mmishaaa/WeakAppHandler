@@ -17,7 +17,12 @@ GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO auth;
 CREATE ROLE gateway LOGIN PASSWORD 'gateway_password';
 GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO gateway;
 
+-- Notification owns only the alerting tables (TASK-027, PRD §8 `notification_rw`); the narrowing to
+-- exactly those tables is TASK-043's job, like the roles above.
+CREATE ROLE notification LOGIN PASSWORD 'notification_password';
+GRANT ALL PRIVILEGES ON DATABASE weakapphandler TO notification;
+
 -- PostgreSQL 15+ no longer grants CREATE on the public schema to every role by default;
 -- without this, EF Core migrations from either service would fail with
 -- "permission denied for schema public".
-GRANT ALL ON SCHEMA public TO processor, auth, gateway;
+GRANT ALL ON SCHEMA public TO processor, auth, gateway, notification;
