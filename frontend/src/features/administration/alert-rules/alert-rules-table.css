@@ -1,0 +1,22 @@
+.alert-rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.alert-rules-table th,
+.alert-rules-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.alert-rules-table__actions {
+  display: flex;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.alert-rules-table__empty {
+  color: var(--color-text-muted);
+}

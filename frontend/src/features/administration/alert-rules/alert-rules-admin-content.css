@@ -1,0 +1,14 @@
+.alert-rules-admin-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.alert-rules-admin-content__form {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.alert-rules-admin-content__form h3 {
+  margin: 0 0 0.75rem;
+}
