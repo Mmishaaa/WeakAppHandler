@@ -3937,3 +3937,50 @@ already had a working `node_modules`):
 
 NEXT: TASK-038 (History screen charts, priority "high") is now fully unblocked - both dependencies
 TASK-037 and TASK-024 are done - and is the clear next pick by priority.
+
+================================================================================
+[2026-09-03] TASK-038 - DONE
+Frontend History screen: metric/location/period selector, aggregation matching each metric's
+shape (sum+avg for energy, avg+min/max band for co2/pm25/humidity, event count bar chart for
+motion).
+================================================================================
+
+Picked as the clear next task - "high" priority, both dependencies (TASK-037, TASK-024) done.
+Branch `task/task-038-history-screen` from up-to-date main.
+
+Found the branch already implemented by a killed ralph.sh iteration (HistoryPage.tsx modified,
+entities/meter/historyMetrics.ts and features/history/ new) and reviewed it in full before running
+anything, including cross-checking every GraphQL query shape against the real committed
+src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql rather than assuming:
+  - `entities/meter/historyMetrics.ts` - maps each metric to its owning meterType and one of three
+    aggregation shapes (`sum-avg`/`avg-band`/`count`), same seed-data source as the existing
+    `metricDisplay.ts`.
+  - `features/history/historyRange.ts` - period-to-bucket mapping (HOUR->MINUTE, DAY->HOUR,
+    WEEK->DAY over a 7-day window), since the Gateway's real `AggregationBucketSize` enum only has
+    MINUTE/HOUR/DAY - verified directly against schema.graphql, no WEEK bucket size exists so "week"
+    is DAY-bucketed over a wider window instead of a distinct size.
+  - `features/history/useHistoryData.ts` - two queries: `HistoryLocations` (fetched once, filtered
+    client-side to locations that actually have a meter of the selected metric's type) and
+    `HistoryAggregations` (skipped until a location is resolved, since the Gateway mixes rows across
+    locations when `location` is omitted). Both query shapes (arguments, return fields) verified
+    against the real schema rather than assumed from the codegen types alone.
+  - `features/history/HistoryContent.tsx` - pure presentation, no queries of its own: picks
+    `MotionBarChart` for `count`, `RangeLineChart` (+ `EnergySummary` above it for `sum-avg`)
+    otherwise, purely as a function of the selected metric's aggregationKind (TASK-037's chart
+    components, wired in for the first time).
+  - `features/history/EnergySummary.tsx` - total-sum/total-count average rather than an average of
+    per-bucket averages, so the figure stays correct regardless of how many readings landed in each
+    bucket.
+  - `HistoryPage.tsx` - wires `HistoryFilterBar`/`AsyncBoundary`/`Skeleton` (TASK-034's established
+    four-state pattern) around `HistoryContent`, replacing the "coming in TASK-037/038" placeholder.
+
+Verification:
+  - `npm run build` (via `prebuild`'s codegen regeneration) - 661 modules transformed, 0 TypeScript
+    errors.
+  - `npm run lint` - clean.
+  - `npm test -- --run` - 109/109 passed across 23 test files (11 new + 98 pre-existing, no
+    regression).
+
+NEXT: TASK-026 and TASK-030 are the two remaining tied-"medium" tasks whose completion (both, not
+either alone) unblocks TASK-040 (priority "high") - picking TASK-026 first since nothing else
+differentiates them and it is the lower-numbered of the two.

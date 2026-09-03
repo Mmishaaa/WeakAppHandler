@@ -709,7 +709,7 @@
         "Шаг 3: Переключиться на motion — проверить bar chart с корректным подсчётом событий"
       ],
       "dependencies": ["TASK-037", "TASK-024"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-039",

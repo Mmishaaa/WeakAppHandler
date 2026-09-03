@@ -1,0 +1,23 @@
+.energy-summary {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.energy-summary__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.energy-summary__stat dt {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.energy-summary__stat dd {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
