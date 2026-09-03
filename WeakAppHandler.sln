@@ -73,6 +73,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.Notification
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.Notification.RuleEngine.Tests", "tests\WeakAppHandler.Notification.RuleEngine.Tests\WeakAppHandler.Notification.RuleEngine.Tests.csproj", "{E1AB7B95-AAE6-4657-8506-30BAE2098C19}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WeakAppHandler.M2.IntegrationTests", "tests\WeakAppHandler.M2.IntegrationTests\WeakAppHandler.M2.IntegrationTests.csproj", "{02ED8909-0B91-4101-A7A4-A83880593CBD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -371,6 +373,18 @@ Global
 		{E1AB7B95-AAE6-4657-8506-30BAE2098C19}.Release|x64.Build.0 = Release|Any CPU
 		{E1AB7B95-AAE6-4657-8506-30BAE2098C19}.Release|x86.ActiveCfg = Release|Any CPU
 		{E1AB7B95-AAE6-4657-8506-30BAE2098C19}.Release|x86.Build.0 = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|x64.Build.0 = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Debug|x86.Build.0 = Debug|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|x64.ActiveCfg = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|x64.Build.0 = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|x86.ActiveCfg = Release|Any CPU
+		{02ED8909-0B91-4101-A7A4-A83880593CBD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -409,5 +423,6 @@ Global
 		{CB32A0E8-44E1-43ED-90CD-42547AA9563B} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{69F305E0-786A-4472-AA6D-E2A2DBFBEDAD} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{E1AB7B95-AAE6-4657-8506-30BAE2098C19} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{02ED8909-0B91-4101-A7A4-A83880593CBD} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

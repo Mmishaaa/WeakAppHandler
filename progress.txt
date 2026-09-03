@@ -3725,3 +3725,106 @@ trusting the prior session's own written claims:
 NEXT: TASK-022 (M2 end-to-end tests, priority "high") is now fully unblocked - its dependencies
 TASK-017/TASK-020/TASK-021 are all done - and is the clear next pick both by priority and because
 this session's TASK-021 pick was itself made specifically to unblock it.
+
+================================================================================
+[2026-09-03] TASK-022 - DONE
+M2 end-to-end integration tests (Testcontainers): F1's four failure-outcome scenarios
+(502/429/corrupted/unauthorized), F3's duplicate-delivery idempotency, and F3's eighteen-metric
+batch timing, all through the real Ingestor and the real Processor talking over a real broker into a
+real database - the seam no prior task's tests cover (WeakAppHandler.Ingestor.Tests only proves what
+the Ingestor publishes; WeakAppHandler.Processor.Infrastructure.Tests only proves what the Processor
+does with a hand-built message). Branch `task/task-022-m2-e2e-integration-tests` from up-to-date main.
+
+Researched first (via an Explore subagent, since no end-to-end host wiring both services together
+existed yet): the shared `tests/Shared/WeakAppHandler.IntegrationTesting` fixture
+(`IntegrationTestFixture`/`PostgresIntegrationFixture`/`RabbitMqIntegrationFixture`), the
+`IngestorHost` (WeakAppHandler.Ingestor.Tests) and `ProcessorHost`
+(WeakAppHandler.Processor.Infrastructure.Tests) patterns each project already duplicates internally,
+`ConsumeCounter`/`MessageCollector<T>` for waiting on real-broker delivery instead of a fixed sleep,
+and the exact PRD §3.3 scenario shapes (502/504 -> http_error, 429+Retry-After -> rate_limited,
+I/O-failure/malformed-JSON -> corrupted, HTTP 401 "Invalid or missing API key" -> unauthorized).
+
+New project `tests/WeakAppHandler.M2.IntegrationTests/` (added to `WeakAppHandler.sln` via
+`dotnet sln add`; new `m2.slnf` scoped to it plus Ingestor + all four Processor projects +
+ServiceDefaults + Contracts + SharedKernel + IntegrationTesting, mirroring the other .slnf files'
+exact JSON shape since none previously spanned both services):
+  - `IngestorEndToEndHost.cs` - the real Ingestor exactly as its Program.cs wires it
+    (`AddServiceMassTransit()` with no consumers of its own + `AddIngestionPolling()`), with only
+    `IWeakAppClient` swapped for a scripted `FakeWeakAppClient` (duplicated from
+    WeakAppHandler.Ingestor.Tests, same reasoning as every other per-project duplication of these
+    test doubles). Its `ReadingsIngestedCollectorConsumer`/`IngestAttemptRecordedCollectorConsumer`
+    are bound to their own capture-only queue names (`readings.ingested.e2e-capture` /
+    `readings.attempt.e2e-capture`), deliberately NOT the production `readings.ingested`/
+    `readings.attempt` queue names `ProcessorEndToEndHost`'s real consumers use - `ReadingsTopology`'s
+    own doc comment already establishes that a topic exchange delivers an independent copy to every
+    distinct bound queue, so this capture (needed so a test can learn the batch id a real poll
+    produced, and to grab the exact message object for the duplicate-delivery scenario) never
+    competes with the real processing for a message the way binding the same queue name twice would.
+  - `ProcessorEndToEndHost.cs` - the real Processor exactly as its Program.cs wires it
+    (`AddProcessorInfrastructure` + the two consumers on the shipped topology), with NO
+    `IReadingBatchWriter` override - unlike WeakAppHandler.Processor.Infrastructure.Tests' own
+    `ProcessorHost`, which substitutes a fixed test writer because normalisation is out of scope for
+    the tests that host serves. This suite needs the real `MeterReadingBatchWriter` (TASK-019): the
+    eighteen-metric scenario asserts on the rows real normalisation produces (30 flat metric rows -
+    one per motion/energy meter, three per air_quality meter's co2/pm25/humidity fields, verified by
+    reading `PayloadNormalizer`'s field-to-metric-code table directly rather than assuming), not a
+    stand-in's fixed output.
+  - `EndToEndScenarioTests.cs` - six tests, all `[Collection(EndToEndCollectionDefinition.Name)]` so
+    they run sequentially against the one shared database (a fresh RabbitMQ virtual host per test,
+    same `CreateVirtualHostAsync`/`DeleteVirtualHostAsync` pattern IngestionConsumerTests already
+    uses, so concurrent test classes in *other* collections/assemblies still cannot interfere -
+    within this one collection xUnit already serialises test classes sharing a collection fixture):
+    - Four `RunScenarioAsync`-driven tests for 502 (http_error/502/0 readings), 429
+      (rate_limited/429), corrupted (corrupted/null http status - the literal `{"error":"data
+      corrupted"}` body was never actually observed live per PRD §3.3's own note, so this models the
+      real I/O-failure/malformed-JSON path instead), and unauthorized (401, "Invalid or missing API
+      key"), each asserting the resulting `ingest_batches` row via a real real poll -> real publish ->
+      real consume chain, not a hand-built message.
+    - `DuplicateDelivery_RedeliveredReadingsMessage_WritesReadingsOnce` - lets a real poll go through
+      once, then re-`Publish`es the exact captured `ReadingsIngested` message a second time via
+      `ProcessorEndToEndHost.Bus` to simulate the at-least-once broker redelivery F3 requires
+      tolerance for, and asserts one `ingest_batches` row, one set of `readings`, and
+      `ProcessingStatsState.Deduplicated == 1`.
+    - `EighteenMetricBatch_IsFullyPersistedWellWithinThePollingInterval` - a real poll returning the
+      full 18-element observed WeakApp response (copied from `docs/weakapp-observed-response.json`,
+      the same `TestMeters.ObservedResponse` fixture WeakAppHandler.Ingestor.Tests already
+      established, duplicated here since it is internal to that project), measuring elapsed time from
+      the message's own `FetchedAt` (the instant the faked WeakApp response was received) to the
+      instant the real Processor finished consuming it, asserting the elapsed time leaves a margin
+      under the 10-second default `WeakApp:PollingIntervalSeconds`, plus 18 on `ingest_batches.
+      ReadingCount` (raw meter-envelope count) and 30 on the real flat `readings` row count.
+  - Also duplicated per the established per-project convention (each existing test project already
+    keeps its own copies rather than sharing internal types across test assemblies):
+    `MessageCollector<T>`, `ConsumeCounter`, `ProcessorDatabase` (migrated `CoreDbContext` builder,
+    snake-case convention), `FakeWeakAppClient`, `TestMeters`, and three tiny
+    `IConsumer<T>`-implementing collector classes.
+
+RECOVERY (this session): a prior session hit a total PowerShell tool death right after fixing a
+StyleCop SA1201 ordering issue in `TestMeters.cs`, before a single `dotnet build`/`dotnet test` could
+run against the new project - leaving it uncommitted but otherwise complete. This session found that
+state, reviewed every new/changed file by hand (all sound), and ran the real verification:
+
+  - `dotnet build m2.slnf` - 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.M2.IntegrationTests` - 5 of 6 failed with
+    `System.TimeoutException: Message ... was consumed 0 times within 00:00:30, expected 1`.
+
+Root-caused rather than reported: all three call sites in `EndToEndScenarioTests.cs` started the
+`IngestorEndToEndHost` BEFORE the `ProcessorEndToEndHost`. The Ingestor's polling worker fires its
+first poll immediately on host startup (by design), but a RabbitMQ topic exchange drops a message for
+any binding that does not exist yet - so with the Processor started second, its queues were not yet
+bound when that first poll published, and the message was silently lost. Fixed by swapping the start
+order at all three sites (Processor first, then Ingestor) with a comment explaining why. Re-ran after
+the fix: 6/6 passed. Also re-ran the full `WeakAppHandler.sln` suite (211 tests across all projects)
+to check for regressions from adding the new project to the solution - all passed, 0 warnings on a
+full rebuild.
+
+Separately noted, not fixed (out of scope for this task): neither this new `IngestorEndToEndHost` nor
+the pre-existing `WeakAppHandler.Ingestor.Tests.IngestorHost` (an established pattern from an earlier
+task) ever calls `AddWeakAppClient()`, which is what binds `WeakAppOptions` from configuration - so
+`WeakApp:PollingIntervalSeconds`'s in-memory override in both hosts has no effect, and the loop always
+runs on the class's own hardcoded default (10s) regardless of what the test sets. Harmless today since
+every assertion in both suites completes in a few seconds, well inside that 10s window, but worth a
+follow-up if a slower CI box ever makes these suites flaky.
+
+NEXT: TASK-044 (priority "high") is now fully unblocked - its dependencies TASK-022/TASK-029/TASK-032
+are all done - and is the clear next pick by priority.
