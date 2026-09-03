@@ -1,0 +1,64 @@
+.range-line-chart {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.range-line-chart__caption {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.range-line-chart__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.range-line-chart__grid-line {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.range-line-chart__band {
+  fill: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  stroke: none;
+}
+
+.range-line-chart__line {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.range-line-chart__end-dot {
+  fill: var(--color-accent);
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+.range-line-chart__axis-label {
+  font-size: 8px;
+  fill: var(--color-text-muted);
+}
+
+.range-line-chart__value-label {
+  font-size: 9px;
+  font-weight: 600;
+  fill: var(--color-text);
+}
+
+.range-line-chart--empty {
+  align-items: center;
+  padding: 1.5rem 0;
+}
+
+.range-line-chart__empty-message {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
