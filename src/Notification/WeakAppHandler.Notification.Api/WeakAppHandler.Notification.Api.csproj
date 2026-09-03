@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="FluentValidation" />
 
     <!-- The ReadingStored consumer is an adapter onto the queue and lives in this project; only the
          transport-agnostic package is referenced, because which exchange and queue it binds to is
