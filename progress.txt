@@ -4138,3 +4138,123 @@ Verification:
 
 NEXT: TASK-040 (priority "high") is now fully unblocked - all three dependencies (TASK-035, TASK-030,
 TASK-026) are done.
+
+================================================================================
+[2026-09-04] TASK-040 - DONE
+Frontend Administration screen (admin-role only): alert-rule CRUD with inline validation, and an
+ingestion control panel (last poll outcome, failure counts by reason, circuit breaker state,
+interval control, manual trigger button).
+================================================================================
+
+Picked as the highest-priority ready task: "high" priority, and its three dependencies
+(TASK-035/TASK-030/TASK-026) were all done per TASK-030's own NEXT note. TASK-042 (critical) was
+NOT eligible - it depends on TASK-041, which is still pending. Branch
+`task/task-040-admin-screen` from up-to-date main.
+
+Researched the actual state of the frontend/backend before writing anything (via a research
+subagent, then direct file reads to confirm the parts that mattered for a design decision):
+`AdministrationPage.tsx` was already a routed stub ("coming in TASK-040/TASK-041"). Auth/role
+gating does NOT exist client-side yet (`accessTokenStore.ts` is `null` until TASK-041 lands a real
+login flow) - so "admin only" in this task's title is descriptive intent, not something to enforce
+here; TASK-041's own acceptance criteria are exactly "hide the Administration route for viewer" and
+none of TASK-040's three test_steps require a logged-in session (step 1 is client-side validation
+that blocks the network call entirely; steps 2/3 go through the Gateway's already-open admin proxy,
+not through user auth). Building an auth gate now would be scope creep into TASK-041's job.
+
+Two real gaps found in the existing backend that this task had to close, not just consume:
+  - The Gateway's `AdminProxyController` (TASK-026) only proxied `GET status`/`GET stats` - no
+    `POST /ingestion/trigger` or `PUT /ingestion/config`. Without those, the manual-trigger button
+    and interval control would have nothing reachable from a browser (the Ingestor's own admin API
+    requires a machine `ingestion:admin` JWT no browser session can obtain). Extended the controller
+    with both, refactoring the existing `ProxyGetAsync` into a general `ProxySendAsync(clientName,
+    method, path, content, ct)` - `PUT /config` forwards the incoming request body as a raw
+    `StreamContent` rather than binding it to a Gateway-side DTO, keeping the same "proxied
+    verbatim" design TASK-026 established for the GETs.
+  - There is no GraphQL mutation type anywhere in `schema.graphql` (`Program.cs` registers only
+    Query/Subscription) - alert-rule writes have no Gateway-proxied path at all, unlike ingestion.
+    Reads go through the existing `alertRules` GraphQL query; create/update/delete go straight to
+    Notification.Api's own REST CRUD (TASK-030) - the first place this frontend calls a REST
+    endpoint that isn't the Gateway. Needed a new `VITE_NOTIFICATION_API_URL` env var alongside a
+    new `VITE_GATEWAY_REST_URL` (same origin as the existing GraphQL URLs, just the REST proxy
+    surface instead).
+
+What was built:
+  - `src/Gateway/.../Admin/AdminProxyController.cs` - `POST ingestion/trigger` and
+    `PUT ingestion/config` added, `ProxySendAsync` generalization described above.
+  - `tests/.../AdminProxyEndpointsTests.cs` - three new tests against the real
+    `GatewayAdminProxyHost` (real Ingestor, real Auth Service, Testcontainers Postgres/RabbitMQ):
+    trigger runs a real poll and returns its outcome; a valid config PUT changes the interval
+    (verified by reading it back from `/status`); an invalid one (below the pipeline's
+    `TotalTimeoutSeconds`) has its 400 forwarded through the proxy unchanged.
+  - `frontend/src/shared/rest/restClient.ts` (new) - the frontend's first REST client wrapper.
+    Attaches `Authorization: Bearer` from `accessTokenStore` the same way `apolloClient.ts`'s
+    authLink does (read fresh per call, currently always absent until TASK-041); throws `RestError`
+    (status + parsed `ValidationProblemDetails.errors`) on any non-2xx response.
+  - `frontend/src/features/administration/ingestion/` - `ingestionApi.ts` (typed wrappers over the
+    three Gateway-proxied endpoints), `useIngestionAdmin.ts` (status fetch + trigger/config actions,
+    each re-fetching status afterward so the panel reflects the Ingestor's real state rather than a
+    locally-guessed one), `IngestionPanel.tsx` (pure presentation - facts list, circuit-breaker badge
+    using a neutral token rather than the reserved severity scale, failure-by-reason list, trigger
+    button, interval form).
+  - `frontend/src/features/administration/alert-rules/` - `alertRuleValidation.ts` (client-side
+    mirror of `AlertRuleRequestValidator`'s exact rules: operator/severity enums, non-negative
+    cooldown, hysteresis in [0,100], exactly one threshold kind - this is what makes TASK-040's own
+    acceptance criterion true: an invalid submission never reaches the network), `alertRulesApi.ts`
+    (REST CRUD against Notification.Api), `alertRuleMapping.ts` (GraphQL read-model row -> form
+    values; the GraphQL schema's uppercase enums vs the REST wire's lower-case codes are identical
+    strings modulo case, so `.toLowerCase()` is the whole mapping), `useAlertRulesAdmin.ts` (GraphQL
+    `useQuery` for reads + REST calls for writes, each followed by a `refetch()` of the GraphQL list
+    rather than hand-rolling optimistic cache updates), `AlertRuleForm.tsx` (create/edit form -
+    metric selection auto-derives numeric-vs-boolean threshold input from
+    `entities/meter/metricDisplay.ts`'s existing kind mapping; errors computed every render but only
+    shown after a first submit attempt, so an empty create form doesn't open pre-flagged),
+    `AlertRulesTable.tsx`, `AlertRulesAdminContent.tsx` (owns which rule is being created/edited;
+    table and form themselves stay pure).
+  - `frontend/src/app/pages/AdministrationPage.tsx` - rewritten from the TASK-040/041 stub into two
+    `AsyncBoundary`-wrapped sections, following the same loading-skeleton/error-retry shape every
+    other screen already uses.
+  - `frontend/src/shared/config/runtimeConfig.ts` / `.env.example` - added `gatewayRestUrl` and
+    `notificationApiUrl`.
+
+One real ESLint failure worth recording for next time: `eslint-plugin-react-hooks` 7's new
+`react-hooks/set-state-in-effect` rule flags a plain "fetch on mount" `useEffect(() => { void
+refetch() }, [refetch])` when `refetch` is an async function whose first statement is
+`setLoading(true)` - that call runs *synchronously* the moment `refetch()` is invoked (an async
+function body runs synchronously up to its first `await`), so from the effect's perspective it's
+indistinguishable from calling `setState` directly in the effect body. Fixed by having the mount
+effect call the fetch function directly and only touch state inside its `.then` callbacks (a
+microtask, genuinely after the effect returns) rather than delegating to the same `refetch` used by
+retry buttons. Same rule flagged a `useEffect` that resynced local input state from a prop
+(`IngestionPanel`'s interval field) - fixed using React's documented "adjusting state when a prop
+changes" pattern (setState conditionally during render, comparing against a mirrored previous-value
+state) instead of a `useEffect`, which is what react.dev itself recommends over an effect for this
+exact case.
+
+Also hit `erasableSyntaxOnly` (TS 6 in this scaffold) rejecting TypeScript parameter-property
+shorthand (`constructor(public readonly status: number, ...)`) in the new `RestError` class - not
+just real `enum`, as TASK-033's original comment about this flag only mentioned. Rewrote as
+explicit field declarations + assignment in the constructor body.
+
+Did not attempt a live browser check: PowerShell command execution in this session is blocked by
+its own permission sandbox even for a bare `Get-Command` lookup (returns "contains multiple
+operations" / requires approval that a non-interactive session can't grant), so a dev server could
+not be started and driven here. Verified instead via `dotnet build`/`dotnet test` (backend) and
+`npm run build`/`npm run lint`/`npm test` (frontend) - see below.
+
+Verification:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test gateway.slnf` - 35/35 passed (includes the 3 new admin-proxy tests, run against
+    real Testcontainers Postgres/RabbitMQ and a real in-process Auth Service).
+  - `npm run build` (frontend) - `tsc -b && vite build` succeeds.
+  - `npm run lint` (frontend) - clean.
+  - `npm test` (frontend) - 135/135 passed across 26 files (12 new: alertRuleValidation,
+    AlertRuleForm, IngestionPanel, plus the existing suite unaffected).
+
+NEXT: TASK-041 (frontend auth: login form, in-memory access token, hides Administration for
+viewer) is now the natural next step - it depends on TASK-040 (done) and TASK-009 (done, backend
+login/JWT already exists). Once TASK-041 lands, `accessTokenStore` will start carrying a real
+token, and the alert-rules REST calls this task wired up will actually need CORS on
+Notification.Api's origin to succeed from a browser (currently no CORS middleware exists anywhere
+in the backend - confirmed via a repo-wide grep - which is consistent with TASK-042's own scope
+"CORS restricted to the frontend origin on every public API" not being done yet either; this is a
+pre-existing gap this task didn't introduce, not something TASK-040 should have papered over).

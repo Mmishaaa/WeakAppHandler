@@ -20,18 +20,48 @@ public sealed class AdminProxyController(IHttpClientFactory httpClientFactory, S
     [HttpGet("ingestion/status")]
     [Produces("application/json")]
     public Task<IActionResult> GetIngestionStatus(CancellationToken cancellationToken) =>
-        ProxyGetAsync(DownstreamServiceNames.Ingestor, "api/v1/ingestion/status", cancellationToken);
+        ProxySendAsync(DownstreamServiceNames.Ingestor, HttpMethod.Get, "api/v1/ingestion/status", content: null, cancellationToken);
 
     [HttpGet("processing/stats")]
     [Produces("application/json")]
     public Task<IActionResult> GetProcessingStats(CancellationToken cancellationToken) =>
-        ProxyGetAsync(DownstreamServiceNames.Processor, "api/v1/processing/stats", cancellationToken);
+        ProxySendAsync(DownstreamServiceNames.Processor, HttpMethod.Get, "api/v1/processing/stats", content: null, cancellationToken);
 
-    private async Task<IActionResult> ProxyGetAsync(string clientName, string path, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs one poll now, same as calling the Ingestor directly, so the Administration screen's
+    /// manual-trigger button (TASK-040) has something to call from a browser that carries no
+    /// <c>ingestion:admin</c>-scoped token of its own.
+    /// </summary>
+    [HttpPost("ingestion/trigger")]
+    [Produces("application/json")]
+    public Task<IActionResult> TriggerIngestion(CancellationToken cancellationToken) =>
+        ProxySendAsync(DownstreamServiceNames.Ingestor, HttpMethod.Post, "api/v1/ingestion/trigger", content: null, cancellationToken);
+
+    /// <summary>
+    /// Forwards the request body as-is (no Gateway-side DTO for the same reason
+    /// <see cref="ProxySendAsync"/>'s doc comment gives for the GET proxies) so the Ingestor's own
+    /// validation - and its field-level 400 - reaches the Administration screen's interval control
+    /// unchanged.
+    /// </summary>
+    [HttpPut("ingestion/config")]
+    [Produces("application/json")]
+    public Task<IActionResult> UpdateIngestionConfig(CancellationToken cancellationToken)
+    {
+        var content = new StreamContent(Request.Body);
+        if (!string.IsNullOrEmpty(Request.ContentType))
+        {
+            content.Headers.TryAddWithoutValidation("Content-Type", Request.ContentType);
+        }
+
+        return ProxySendAsync(DownstreamServiceNames.Ingestor, HttpMethod.Put, "api/v1/ingestion/config", content, cancellationToken);
+    }
+
+    private async Task<IActionResult> ProxySendAsync(
+        string clientName, HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken)
     {
         var accessToken = await tokenProvider.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var request = new HttpRequestMessage(method, path) { Content = content };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var client = httpClientFactory.CreateClient(clientName);

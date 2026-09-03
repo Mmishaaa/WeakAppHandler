@@ -13,4 +13,11 @@ export const runtimeConfig = {
   graphqlHttpUrl: readEnv('VITE_GATEWAY_GRAPHQL_HTTP_URL', 'https://localhost:7069/graphql'),
   graphqlWsUrl: readEnv('VITE_GATEWAY_GRAPHQL_WS_URL', 'wss://localhost:7069/graphql'),
   alertsHubUrl: readEnv('VITE_NOTIFICATION_ALERTS_HUB_URL', 'https://localhost:7031/hubs/alerts'),
+
+  /** Same origin as graphqlHttpUrl - the Gateway's REST admin proxy (TASK-026/040), not GraphQL. */
+  gatewayRestUrl: readEnv('VITE_GATEWAY_REST_URL', 'https://localhost:7069'),
+
+  /** Notification.Api's own REST origin for alert-rules CRUD (TASK-030/040) - a different service
+   * from the Gateway, so it needs its own base URL rather than reusing gatewayRestUrl. */
+  notificationApiUrl: readEnv('VITE_NOTIFICATION_API_URL', 'https://localhost:7031'),
 }
