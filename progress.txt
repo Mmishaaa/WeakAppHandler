@@ -4074,3 +4074,67 @@ Verification:
 
 NEXT: TASK-030 (medium) is now the sole remaining blocker for TASK-040 (priority "high") - its own
 dependencies TASK-027/TASK-009 are both done.
+
+================================================================================
+[2026-09-04] TASK-030 - DONE
+Notification REST CRUD /api/v1/alert-rules with FluentValidation (valid operator, non-negative
+cooldown, hysteresis in a reasonable range), admin-role-only access.
+================================================================================
+
+Picked per TASK-026's own NEXT note - the second of two tied-"medium" tasks whose completion
+unblocks TASK-040 (priority "high"). Branch `task/task-030-alert-rules-crud` from up-to-date main.
+
+Unusual session again: found the branch with only a package reference staged (FluentValidation added
+to Directory.Packages.props and the Notification.Api csproj - a killed ralph.sh iteration got that
+far and no further), then partway through implementing it from scratch discovered ANOTHER live
+Claude Code session's background subagent independently writing the exact same feature into the same
+files concurrently (confirmed by direct cross-session message exchange, same coordination pattern as
+TASK-044). That peer killed its subagent once notified and stood down; I finished the implementation
+and this session handled build/test/commit/PR/merge alone, as agreed.
+
+What was built, reusing an already-in-place design foundation from a much earlier task:
+`AlertRuleConfiguration`'s check constraints (`ck_alert_rules_cooldown_seconds`,
+`ck_alert_rules_hysteresis_percent`, `ck_alert_rules_single_threshold`) already anticipated this
+task's exact validation rules, so the request-level rules mirror database invariants that already
+existed rather than inventing new ones.
+  - `Admin/AlertRuleRequest.cs`/`AlertRuleResponse.cs` - wire DTOs. Operator/severity are the same
+    lower-case codes `AlertOperatorConverter`/`AlertSeverityConverter` already use for the column
+    itself. `HysteresisPercent`/`CooldownSeconds`/`IsEnabled` are nullable: omitted means "use the
+    entity's own default" (5%/300s/enabled).
+  - `Admin/AlertRuleRequestValidator.cs` (FluentValidation, invoked explicitly in the controller
+    rather than through ASP.NET Core auto-validation - the author deprecated
+    FluentValidation.AspNetCore, so there is no such integration package to add): valid operator/
+    severity code, non-negative cooldown, hysteresis in [0, 100], exactly one threshold kind. The
+    threshold check targets `RuleFor(r => r.ThresholdNumeric)` specifically (not the whole request
+    object) so the resulting failure's `PropertyName` is actually "ThresholdNumeric" -
+    `WithName`/`WithMessage` only change the rendered message, not what `ModelState` gets keyed by.
+  - `Admin/AlertRulesController.cs` - full CRUD (`GET`/`GET {id}`/`POST`/`PUT {id}`/`DELETE {id}`)
+    under `[Authorize(Policy = ServicePolicies.Admin)]` - a human admin's ROLE claim, not a machine
+    scope, since PRD explicitly calls for role-gating a browser-facing surface here, unlike the
+    Ingestor's/Processor's machine-only admin APIs. Failed validation becomes the same
+    `ModelState.AddModelError` + `ValidationProblem(ModelState)` shape TASK-017's config PUT endpoint
+    already established, so every admin REST surface in this codebase reports field-level 400s the
+    same way.
+  - `Program.cs` - registers `TimeProvider.System` (TryAdd, so a test can pin `CreatedAt`/`UpdatedAt`)
+    and the validator; `AddControllers()`/auth were already wired from TASK-031.
+
+Tests:
+  - `AlertRuleRequestValidatorTests.cs` (new, pure unit) - every documented operator/severity code
+    accepted, each invalid case failing on the specific field FluentValidation reports it under.
+  - `AlertRulesAdminHost.cs` (new) - mirrors `AlertsHubHost` (TASK-031)'s real-Auth-Service
+    arrangement, extended with a real admin token alongside the viewer one (the admin surface's
+    negative case needs a token that authenticates but carries the wrong role).
+  - `AlertRulesAdminEndpointsTests.cs` (new) - invalid operator/cooldown/hysteresis/threshold each
+    return 400 with the right field name; a viewer token gets 403, no token gets 401; full CRUD
+    against the real database, with counts scoped to the test's own metric code/seed rule ids rather
+    than a raw table-wide row count - the database is shared across the whole collection, so other
+    tests' own rules are present too and a total-count assertion would be flaky (found and fixed
+    during my own verification: two tests initially asserted an exact total of 5, which failed with
+    8 once other test classes' concurrently-seeded rules were accounted for).
+
+Verification:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.sln` - 263/263 passed.
+
+NEXT: TASK-040 (priority "high") is now fully unblocked - all three dependencies (TASK-035, TASK-030,
+TASK-026) are done.

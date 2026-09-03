@@ -37,6 +37,12 @@
     <PackageVersion Include="HotChocolate.Data.EntityFramework" Version="16.6.2" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
     <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
+    <!-- TASK-030: request-level validation for the Notification admin REST surface. Pinned as a
+         plain library reference (no ASP.NET Core auto-validation integration package - the author
+         deprecated FluentValidation.AspNetCore - so validators are invoked explicitly in the
+         controller, converting failures into the same ValidationProblem shape TASK-017's config
+         PUT endpoint already established). -->
+    <PackageVersion Include="FluentValidation" Version="11.11.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageVersion Include="Testcontainers.RabbitMq" Version="4.14.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
