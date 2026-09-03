@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 using WeakAppHandler.Contracts;
+using WeakAppHandler.Ingestor.Telemetry;
 using WeakAppHandler.Ingestor.WeakApp;
 
 namespace WeakAppHandler.Ingestor.Polling;
@@ -16,6 +18,7 @@ public sealed partial class IngestionPoller(
     IWeakAppClient weakAppClient,
     IPublishEndpoint publishEndpoint,
     TimeProvider timeProvider,
+    IngestorMetrics metrics,
     ILogger<IngestionPoller> logger) : IIngestionPoller
 {
     /// <summary>
@@ -26,9 +29,17 @@ public sealed partial class IngestionPoller(
 
     public async Task<IngestAttemptRecorded> PollOnceAsync(CancellationToken cancellationToken)
     {
+        // Spans the HTTP call to WeakApp and both publishes below (TASK-044): the HTTP client's own
+        // span ends the moment the response is read, so without this ambient parent still live at
+        // publish time, MassTransit's span would start a brand new trace instead of continuing this
+        // one - which is what lets one reading be traced end to end on a single trace id.
+        using var activity = IngestorActivitySource.Instance.StartActivity(
+            "weakapp.poll", ActivityKind.Producer);
+
         // One batch id per attempt, shared by both messages this attempt can produce, so the
         // Processor can tie the readings it stores to the ingest_batches row for the same poll.
         var batchId = NewId.NextGuid();
+        activity?.SetTag("weakapphandler.batch_id", batchId);
 
         var result = await weakAppClient.GetMetersAsync(cancellationToken).ConfigureAwait(false);
 
@@ -38,6 +49,13 @@ public sealed partial class IngestionPoller(
         var durationMs = (int)Math.Round(result.Duration.TotalMilliseconds);
         var succeeded = result.Outcome == IngestOutcome.Success;
         var readings = succeeded ? MeterReadingEnvelopeMapper.Map(result.Meters) : [];
+
+        metrics.RecordPoll(result.Outcome, result.Duration.TotalMilliseconds);
+        activity?.SetTag("weakapphandler.poll.outcome", result.Outcome.ToString());
+        if (!succeeded)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, result.ErrorMessage);
+        }
 
         if (succeeded)
         {

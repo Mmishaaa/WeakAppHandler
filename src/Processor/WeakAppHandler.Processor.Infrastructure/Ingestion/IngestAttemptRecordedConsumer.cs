@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using MassTransit;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.Processor.Application.Stats;
+using WeakAppHandler.Processor.Application.Telemetry;
 
 namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 
@@ -9,16 +11,19 @@ namespace WeakAppHandler.Processor.Infrastructure.Ingestion;
 /// Ingestor has no database access, so this message is the only way a failed attempt ever reaches
 /// <c>ingest_batches</c> (see tasks.json <c>architecture_review</c>).
 /// </summary>
-public sealed class IngestAttemptRecordedConsumer(IngestionRecorder recorder, ProcessingStatsState stats)
+public sealed class IngestAttemptRecordedConsumer(IngestionRecorder recorder, ProcessingStatsState stats, ProcessorMetrics metrics)
     : IConsumer<IngestAttemptRecorded>
 {
     public async Task Consume(ConsumeContext<IngestAttemptRecorded> context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        var start = Stopwatch.GetTimestamp();
         var result = await recorder.RecordAttemptAsync(context.Message, context.CancellationToken)
             .ConfigureAwait(false);
+        metrics.RecordProcessingDuration("ingest_attempt", Stopwatch.GetElapsedTime(start).TotalMilliseconds);
 
         stats.RecordResult(result);
+        metrics.RecordResult(result);
     }
 }

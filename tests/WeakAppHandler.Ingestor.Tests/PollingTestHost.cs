@@ -1,8 +1,10 @@
 using MassTransit;
 using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Polly.CircuitBreaker;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.Ingestor.Polling;
+using WeakAppHandler.Ingestor.Telemetry;
 using WeakAppHandler.Ingestor.WeakApp;
 
 namespace WeakAppHandler.Ingestor.Tests;
@@ -30,6 +32,8 @@ internal sealed class PollingTestHost : IAsyncDisposable
         var provider = new ServiceCollection()
             .AddSingleton(weakAppClient)
             .AddSingleton(TimeProvider.System)
+            .AddSingleton<CircuitBreakerStateProvider>()
+            .AddSingleton<IngestorMetrics>()
             .AddScoped<IIngestionPoller, IngestionPoller>()
             .AddMassTransitTestHarness()
             .BuildServiceProvider(validateScopes: true);

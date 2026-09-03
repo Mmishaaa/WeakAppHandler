@@ -48,6 +48,12 @@ public static class ServiceMassTransitExtensions
 
                 rabbitMqConfigurator.ConfigureReadingsTopology();
 
+                // Enables MassTransit's own built-in "MassTransit"-named Meter (messaging.masstransit.
+                // receive/consume, tagged by destination) - TASK-044's "queue consumption rate" F10
+                // metric, without a bespoke counter this session would only ever duplicate.
+                // ServiceDefaults registers the OTel SDK's AddMeter("MassTransit") to pick it up.
+                rabbitMqConfigurator.UseInstrumentation();
+
                 configureReceiveEndpoints?.Invoke(context, rabbitMqConfigurator);
 
                 // Consumers already placed on an explicit receive endpoint above are skipped here,

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Polly.CircuitBreaker;
+using WeakAppHandler.Ingestor.Telemetry;
 
 namespace WeakAppHandler.Ingestor.Polling;
 
@@ -19,6 +21,14 @@ public static class IngestionServiceCollectionExtensions
 
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.TryAddSingleton<IngestionRuntimeState>();
+
+        // Registered here rather than only alongside AddWeakAppClient's resilience pipeline (which
+        // is what actually drives the breaker's state): IngestionPoller needs a metrics instance
+        // wherever it is registered, including test hosts that fake IWeakAppClient directly and never
+        // call AddWeakAppClient. TryAdd makes the two registrations agree without conflict when a
+        // host calls both.
+        builder.Services.TryAddSingleton<CircuitBreakerStateProvider>();
+        builder.Services.TryAddSingleton<IngestorMetrics>();
 
         // The concrete poller is registered separately from the interface so the decorator can take
         // it as a dependency; anything resolving IIngestionPoller gets the recording one, which is

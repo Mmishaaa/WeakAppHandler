@@ -3,6 +3,7 @@ using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using WeakAppHandler.Contracts;
 using WeakAppHandler.Processor.Application.Stats;
+using WeakAppHandler.Processor.Application.Telemetry;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 
 namespace WeakAppHandler.Processor.Infrastructure.Tests;
@@ -29,6 +30,7 @@ public sealed class ProcessingStatsFaultConsumerTests
 
         await using var provider = new ServiceCollection()
             .AddSingleton(stats)
+            .AddSingleton<ProcessorMetrics>()
             .AddMassTransitTestHarness(cfg =>
             {
                 cfg.AddConsumer<AlwaysThrowingConsumer>();
@@ -62,6 +64,7 @@ public sealed class ProcessingStatsFaultConsumerTests
 
         await using var provider = new ServiceCollection()
             .AddSingleton(stats)
+            .AddSingleton<ProcessorMetrics>()
             .AddMassTransitTestHarness(cfg =>
             {
                 cfg.AddConsumer<AlwaysThrowingAttemptConsumer>();

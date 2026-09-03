@@ -1,5 +1,6 @@
 using MassTransit;
 using WeakAppHandler.Contracts;
+using WeakAppHandler.Notification.Api.Telemetry;
 
 namespace WeakAppHandler.Notification.Api.Alerting;
 
@@ -12,7 +13,7 @@ namespace WeakAppHandler.Notification.Api.Alerting;
 /// after the evaluator's write has committed - the evaluator returns events, it does not announce
 /// them.
 /// </remarks>
-public sealed class ReadingStoredConsumer(AlertEvaluator evaluator, IAlertDispatcher dispatcher)
+public sealed class ReadingStoredConsumer(AlertEvaluator evaluator, IAlertDispatcher dispatcher, NotificationMetrics metrics)
     : IConsumer<ReadingStored>
 {
     public async Task Consume(ConsumeContext<ReadingStored> context)
@@ -26,11 +27,13 @@ public sealed class ReadingStoredConsumer(AlertEvaluator evaluator, IAlertDispat
         foreach (var alert in result.Raised)
         {
             await dispatcher.DispatchRaisedAsync(alert, context.CancellationToken).ConfigureAwait(false);
+            metrics.RecordRaised(alert.Severity);
         }
 
         foreach (var alert in result.Resolved)
         {
             await dispatcher.DispatchResolvedAsync(alert, context.CancellationToken).ConfigureAwait(false);
+            metrics.RecordResolved(alert.Severity);
         }
     }
 }
