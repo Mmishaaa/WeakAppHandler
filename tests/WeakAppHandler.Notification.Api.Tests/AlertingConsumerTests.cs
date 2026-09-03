@@ -34,6 +34,7 @@ public sealed class AlertingConsumerTests(IntegrationTestFixture fixture)
                 AlertingDatabase.NewRule(metric, threshold: 1000m, hysteresisPercent: 0m));
 
             await using var host = await NotificationHost.StartAsync(fixture, virtualHost);
+            using var metrics = new MeterListenerFixture(host.Metrics.Meter);
 
             var meterId = Guid.NewGuid();
             await host.Bus.Publish(StoredReadings.Numeric(meterId, metric, 1200, Origin, location: "Kitchen"));
@@ -51,6 +52,11 @@ public sealed class AlertingConsumerTests(IntegrationTestFixture fixture)
 
             Assert.Equal(AlertStatus.Active, alert.Status);
             Assert.Equal(1200m, alert.TriggeredValueNumeric);
+
+            // TASK-044: the raise is also exported as a Prometheus-shaped counter, tagged by severity.
+            var raisedMetric = metrics.LongMeasurements.Single(m => m.Instrument == "notification.alerts.raised");
+            Assert.Equal(1, raisedMetric.Value);
+            Assert.Equal("warning", raisedMetric.Tags.Single(t => t.Key == "severity").Value);
         }
         finally
         {
@@ -71,6 +77,7 @@ public sealed class AlertingConsumerTests(IntegrationTestFixture fixture)
                 AlertingDatabase.NewRule(metric, threshold: 1000m, hysteresisPercent: 5m));
 
             await using var host = await NotificationHost.StartAsync(fixture, virtualHost);
+            using var metrics = new MeterListenerFixture(host.Metrics.Meter);
 
             var meterId = Guid.NewGuid();
             await host.Bus.Publish(StoredReadings.Numeric(meterId, metric, 1200, Origin));
@@ -92,6 +99,11 @@ public sealed class AlertingConsumerTests(IntegrationTestFixture fixture)
 
             Assert.Equal(AlertStatus.Resolved, alert.Status);
             Assert.Equal(Origin.AddSeconds(10), alert.ResolvedAt);
+
+            // TASK-044: the resolve is exported the same way as the raise above.
+            var resolvedMetric = metrics.LongMeasurements.Single(m => m.Instrument == "notification.alerts.resolved");
+            Assert.Equal(1, resolvedMetric.Value);
+            Assert.Equal("warning", resolvedMetric.Tags.Single(t => t.Key == "severity").Value);
         }
         finally
         {

@@ -817,7 +817,7 @@
         "Шаг 3: Проверить заголовки сообщения в RabbitMQ management UI — убедиться в наличии trace id"
       ],
       "dependencies": ["TASK-022", "TASK-029", "TASK-032"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-045",

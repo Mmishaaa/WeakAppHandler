@@ -3828,3 +3828,70 @@ follow-up if a slower CI box ever makes these suites flaky.
 
 NEXT: TASK-044 (priority "high") is now fully unblocked - its dependencies TASK-022/TASK-029/TASK-032
 are all done - and is the clear next pick by priority.
+
+================================================================================
+[2026-09-03] TASK-044 - DONE
+OpenTelemetry tracing across the full pipeline (HTTP call to WeakApp -> publish -> consume ->
+persist -> notify) with trace id propagation through RabbitMQ message headers; per-service domain
+metrics (poll outcomes/latency, circuit state, queue consumption rate, processing latency, dedup
+count, dead-letter count, alerts raised/resolved, GraphQL request duration) exported in Prometheus
+format.
+================================================================================
+
+Picked over TASK-007/026/030/037/045 (all tied at "medium") because it is the only one of the tied
+group that sits directly on the critical TASK-047 chain and unblocks the most downstream work, by the
+same priority-then-dependency-depth reasoning prior sessions used. Branch
+`task/task-044-otel-tracing-metrics` from up-to-date main.
+
+Unusual session: this branch was picked up mid-flight from ANOTHER live Claude Code session working
+the same task concurrently in the same working directory (not a killed/abandoned iteration this time
+- confirmed by direct cross-session message exchange). That session's own PowerShell tool died
+mid-verification, same failure mode several earlier entries in this file describe. Coordinated instead
+of duplicating: it had already built IngestorMetrics/ProcessorMetrics/NotificationMetrics/
+GatewayMetrics, the Ingestor's `weakapp.poll` tracing span, `ServiceDefaultsExtensions`' wildcard
+Meter/ActivitySource registration, and a full set of unit + end-to-end tests (including
+`TracingPropagationTests`, proving one trace id survives a real poll through the real broker into the
+real Processor). My job was independent verification plus filling two real gaps found by checking the
+work against the actual PRD F10 list rather than trusting the branch's own scope as complete.
+
+What was added on top of the other session's work:
+  - `ServiceMassTransitExtensions.cs` - `rabbitMqConfigurator.UseInstrumentation()`, one line, shared
+    by every service host. Verified via a disposable console probe against the installed MassTransit
+    9.2.0 assembly (not docs/training data) that this enables MassTransit's own built-in
+    "MassTransit"-named Meter, exposing `messaging.masstransit.receive`/`.consume` counters tagged by
+    destination (queue) - exactly PRD's "queue consumption rate" F10 metric, which neither this
+    session's own work nor the other session's had covered with a bespoke counter.
+  - `ServiceDefaultsExtensions.cs` - `.AddMeter("MassTransit")` alongside the existing
+    `AddMeter("WeakAppHandler.*")` wildcard, so the above actually reaches the Prometheus scrape.
+  - `tests/WeakAppHandler.ServiceDefaults.Tests/MassTransitInstrumentationTests.cs` (new) - proves the
+    wiring end to end against MassTransit's in-memory test transport (no real broker needed, since the
+    instrumentation itself is transport-agnostic) and the real `/metrics` endpoint, rather than trusting
+    that `UseInstrumentation()` does what its name implies.
+  - Scope decision, documented rather than silently left incomplete: PRD's "dead-letter depth" is
+    covered by the existing `processor.messages.dead_lettered` cumulative COUNTER (already built), not
+    a live gauge of a RabbitMQ queue's current backlog. A true depth gauge would need a RabbitMQ
+    management-API poller this codebase has no other reason to build, arguably more F11
+    (Grafana/compose)'s concern than this task's; the counter already answers the operationally useful
+    question ("how many messages have needed dead-lettering") and is what a Prometheus `rate()` query
+    over it would show as a live-ish signal in practice.
+
+Verification, independent of both sessions' own claims:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.sln` - found and fixed two real bugs before reaching green:
+    1. `IngestionPollerTracingTests` registered a global `ActivityListener` on the static
+       `IngestorActivitySource.Instance`; `IngestionPollerTests` (a separate xUnit collection running
+       concurrently by default) also calls `PollOnceAsync()` on that same process-wide source, so the
+       listener sometimes captured 2 activities instead of the 1 `Assert.Single()` assumed. Fixed by
+       filtering the assertion on the poll's own `batch_id` tag instead of assuming exclusivity over a
+       shared static source.
+    2. `TracingPropagationTests` never called `ProcessorDatabase.CreateMigratedContextAsync(fixture)`
+       before starting the hosts, unlike every other end-to-end test in the same file/project - so the
+       Processor's schema did not exist yet and the real consumer faulted with
+       `relation "processed_messages" does not exist`, timing out the test waiting for a consume that
+       could never succeed. Fixed by adding the missing migration call.
+  - Re-ran after both fixes: `dotnet test WeakAppHandler.sln` - 229/229 passed, twice for stability.
+
+NEXT: TASK-037 (medium) is the pick among the remaining tied-priority unblocked tasks - its only
+dependency TASK-034 is done, and completing it fully unblocks TASK-038 (priority "high", whose other
+dependency TASK-024 is already done), the same "unblocks a higher-priority task" reasoning this
+session and TASK-021's used.

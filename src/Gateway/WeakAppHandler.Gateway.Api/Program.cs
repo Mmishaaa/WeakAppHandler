@@ -1,4 +1,5 @@
 using WeakAppHandler.Gateway.Api.GraphQL;
+using WeakAppHandler.Gateway.Api.Telemetry;
 using WeakAppHandler.Gateway.Infrastructure;
 using WeakAppHandler.ServiceDefaults;
 using WeakAppHandler.ServiceDefaults.Messaging;
@@ -9,6 +10,7 @@ builder.AddServiceDefaults();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddGatewayInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<GatewayMetrics>();
 
 // TASK-032: a second, independent receive endpoint bound to the same readings.stored routing key
 // Notification already consumes (TASK-029) - the topic exchange delivers a copy to each queue, so
@@ -66,6 +68,8 @@ app.UseWebSockets();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseMiddleware<GraphQLMetricsMiddleware>();
 
 app.MapControllers();
 app.MapGraphQL();

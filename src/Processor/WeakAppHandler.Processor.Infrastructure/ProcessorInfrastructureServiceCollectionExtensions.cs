@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WeakAppHandler.Processor.Application.Ingestion;
 using WeakAppHandler.Processor.Application.Stats;
+using WeakAppHandler.Processor.Application.Telemetry;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
 
@@ -27,6 +28,7 @@ public static class ProcessorInfrastructureServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ProcessingStatsState>();
+        services.TryAddSingleton<ProcessorMetrics>();
 
         // Scoped, like the DbContext they share: a consumer resolves one recorder per delivery, and
         // the transaction it opens lives and dies inside that delivery's scope.

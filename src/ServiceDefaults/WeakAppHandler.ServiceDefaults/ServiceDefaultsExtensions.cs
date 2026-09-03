@@ -76,13 +76,34 @@ public static class ServiceDefaultsExtensions
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
+
+                    // Every service's own domain meter is named "WeakAppHandler.<Service>" (e.g.
+                    // IngestorMetrics, ProcessorMetrics) - the wildcard picks all of them up without
+                    // ServiceDefaults having to know each service's meter name individually.
+                    .AddMeter("WeakAppHandler.*")
+
+                    // MassTransit's own built-in Meter (enabled by ServiceMassTransitExtensions'
+                    // UseInstrumentation() call), reporting messaging.masstransit.receive/consume
+                    // tagged by destination - TASK-044's "queue consumption rate" F10 metric.
+                    .AddMeter("MassTransit")
                     .AddPrometheusExporter();
             })
             .WithTracing(tracing =>
             {
                 tracing
                     .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation();
+                    .AddHttpClientInstrumentation()
+
+                    // MassTransit only injects/extracts W3C traceparent into message headers - and
+                    // only creates spans for Send/Publish/Consume - once a listener is registered for
+                    // its own "MassTransit" ActivitySource; without this, ActivitySource.StartActivity
+                    // is a no-op and trace context never crosses RabbitMQ (TASK-044).
+                    .AddSource("MassTransit")
+
+                    // Same wildcard convention as the meter above, for each service's own
+                    // ActivitySource (e.g. the Ingestor's poll-cycle span that HTTP/publish spans nest
+                    // under so a single trace id survives the hop from WeakApp into the bus).
+                    .AddSource("WeakAppHandler.*");
 
                 var otlpEndpoint = builder.Configuration["OpenTelemetry:OtlpEndpoint"];
                 if (!string.IsNullOrWhiteSpace(otlpEndpoint))

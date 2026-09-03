@@ -31,6 +31,7 @@ public sealed class IngestionConsumerTests(IntegrationTestFixture fixture)
         {
             await using var context = await ProcessorDatabase.CreateMigratedContextAsync(fixture);
             await using var host = await ProcessorHost.StartAsync(fixture, virtualHost);
+            using var metrics = new MeterListenerFixture(host.Metrics.Meter);
 
             var batchId = Guid.NewGuid();
             var message = IngestionMessages.Readings(batchId, "consumer-duplicate", meterCount: 2);
@@ -53,6 +54,13 @@ public sealed class IngestionConsumerTests(IntegrationTestFixture fixture)
             var stats = host.Stats.Snapshot();
             Assert.Equal(1, stats.Processed);
             Assert.Equal(1, stats.Deduplicated);
+
+            // TASK-044: the same tally, exported as Prometheus-shaped counters rather than the
+            // in-memory admin snapshot above, plus a processing-duration measurement for each of the
+            // two deliveries regardless of which one turned out to be the duplicate.
+            Assert.Single(metrics.LongMeasurements, m => m.Instrument == "processor.messages.recorded");
+            Assert.Single(metrics.LongMeasurements, m => m.Instrument == "processor.messages.deduplicated");
+            Assert.Equal(2, metrics.DoubleMeasurements.Count(m => m.Instrument == "processor.processing.duration"));
         }
         finally
         {

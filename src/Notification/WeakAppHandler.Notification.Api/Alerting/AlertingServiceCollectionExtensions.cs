@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using WeakAppHandler.Notification.Api.Telemetry;
 
 namespace WeakAppHandler.Notification.Api.Alerting;
 
@@ -16,6 +17,7 @@ public static class AlertingServiceCollectionExtensions
         // delivery its own scope.
         services.AddScoped<AlertEvaluator>();
         services.TryAddSingleton<IAlertDispatcher, LoggingAlertDispatcher>();
+        services.TryAddSingleton<NotificationMetrics>();
 
         return services;
     }

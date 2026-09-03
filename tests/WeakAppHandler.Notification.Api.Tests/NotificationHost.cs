@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using WeakAppHandler.IntegrationTesting;
 using WeakAppHandler.Notification.Api.Alerting;
+using WeakAppHandler.Notification.Api.Telemetry;
 
 namespace WeakAppHandler.Notification.Api.Tests;
 
@@ -29,6 +30,8 @@ internal sealed class NotificationHost : IAsyncDisposable
     public RecordingAlertDispatcher Dispatcher { get; }
 
     public IBus Bus => _factory.Services.GetRequiredService<IBus>();
+
+    public NotificationMetrics Metrics => _factory.Services.GetRequiredService<NotificationMetrics>();
 
     public static async Task<NotificationHost> StartAsync(IntegrationTestFixture fixture, string virtualHost)
     {
