@@ -1,0 +1,17 @@
+{
+  "solution": {
+    "path": "WeakAppHandler.sln",
+    "projects": [
+      "src\\SharedKernel\\WeakAppHandler.SharedKernel\\WeakAppHandler.SharedKernel.csproj",
+      "src\\ServiceDefaults\\WeakAppHandler.ServiceDefaults\\WeakAppHandler.ServiceDefaults.csproj",
+      "src\\Contracts\\WeakAppHandler.Contracts\\WeakAppHandler.Contracts.csproj",
+      "src\\Ingestor\\WeakAppHandler.Ingestor\\WeakAppHandler.Ingestor.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Domain\\WeakAppHandler.Processor.Domain.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Application\\WeakAppHandler.Processor.Application.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Infrastructure\\WeakAppHandler.Processor.Infrastructure.csproj",
+      "src\\Processor\\WeakAppHandler.Processor.Worker\\WeakAppHandler.Processor.Worker.csproj",
+      "tests\\Shared\\WeakAppHandler.IntegrationTesting\\WeakAppHandler.IntegrationTesting.csproj",
+      "tests\\WeakAppHandler.M2.IntegrationTests\\WeakAppHandler.M2.IntegrationTests.csproj"
+    ]
+  }
+}

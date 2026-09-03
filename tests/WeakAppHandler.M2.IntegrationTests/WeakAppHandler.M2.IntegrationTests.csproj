@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- IHostApplicationBuilder and the generic host, which both end-to-end hosts build their
+         service on the way each real Program.cs does. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The two services this suite wires together end to end, exactly as each Program.cs does. -->
+    <ProjectReference Include="..\..\src\Ingestor\WeakAppHandler.Ingestor\WeakAppHandler.Ingestor.csproj" />
+    <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Infrastructure\WeakAppHandler.Processor.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
+  </ItemGroup>
+
+</Project>
