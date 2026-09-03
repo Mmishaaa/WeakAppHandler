@@ -36,6 +36,7 @@
     <PackageVersion Include="HotChocolate.Data" Version="16.6.2" />
     <PackageVersion Include="HotChocolate.Data.EntityFramework" Version="16.6.2" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageVersion Include="Testcontainers.RabbitMq" Version="4.14.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />

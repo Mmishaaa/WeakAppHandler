@@ -1,4 +1,5 @@
 using WeakAppHandler.Gateway.Api.GraphQL;
+using WeakAppHandler.Gateway.Api.ServiceClients;
 using WeakAppHandler.Gateway.Api.Telemetry;
 using WeakAppHandler.Gateway.Infrastructure;
 using WeakAppHandler.ServiceDefaults;
@@ -11,6 +12,7 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddGatewayInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<GatewayMetrics>();
+builder.AddDownstreamServiceClients();
 
 // TASK-032: a second, independent receive endpoint bound to the same readings.stored routing key
 // Notification already consumes (TASK-029) - the topic exchange delivers a copy to each queue, so
@@ -58,6 +60,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+
+    // TASK-026: the native document MapOpenApi() serves is JSON only - Swashbuckle's UI package is
+    // added purely as a viewer over that same document (no SwaggerGen: nothing here re-generates the
+    // spec HotChocolate/Microsoft.AspNetCore.OpenApi already produce).
+    app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Gateway API v1"));
 }
 
 app.UseHttpsRedirection();

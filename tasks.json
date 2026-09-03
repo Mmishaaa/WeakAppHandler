@@ -493,7 +493,7 @@
         "Шаг 3: Открыть Swagger UI в Development — убедиться, что все REST-эндпоинты Gateway документированы"
       ],
       "dependencies": ["TASK-017", "TASK-021", "TASK-010"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-027",

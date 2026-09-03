@@ -11,6 +11,7 @@
          transport-agnostic package is referenced, because which exchange/queue it binds to is
          ServiceDefaults' topology to decide. -->
     <PackageReference Include="MassTransit" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
   </ItemGroup>
 
   <ItemGroup>
