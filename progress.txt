@@ -3984,3 +3984,93 @@ Verification:
 NEXT: TASK-026 and TASK-030 are the two remaining tied-"medium" tasks whose completion (both, not
 either alone) unblocks TASK-040 (priority "high") - picking TASK-026 first since nothing else
 differentiates them and it is the lower-numbered of the two.
+
+================================================================================
+[2026-09-04] TASK-026 - DONE
+Gateway REST: proxies ingestion/processing status (machine JWT to Ingestor/Processor), streams a
+CSV export of readings with constant memory, and exposes an OpenAPI spec browsable through Swagger
+UI in Development.
+================================================================================
+
+Picked per TASK-038's own NEXT note (tied with TASK-030 for unblocking TASK-040; picked first as the
+lower-numbered of the two). Branch `task/task-026-gateway-rest-proxy-export` from up-to-date main.
+
+Found the branch as an empty checkout - a ralph.sh iteration had created it and then failed
+immediately (exit 1, zero commits, zero diff from main) before writing any code, so this was a full
+implementation from scratch rather than a review-and-fix.
+
+What was built, after researching the actual acceptance criteria against real code rather than
+guessing: this is the FIRST case of one service in this codebase calling another over real HTTP as a
+machine client (every prior admin-API test minted its own token; no production code path existed).
+  - `Processor.Worker/Properties/launchSettings.json` (new) - Processor.Worker never had a fixed dev
+    port (TASK-021 added its admin API but no way to actually reach it outside a test's in-memory
+    TestServer). Assigned 5097, the next free port after Ingestor's 5095/Auth's 5091/Notification's
+    5299/Gateway's 5173, mirroring Ingestor's own launchSettings.json shape exactly.
+  - `Gateway.Api/appsettings.json` - new `ServiceClient` (TokenUri/ClientId/ClientSecret - reuses the
+    seeded `gateway-ingestor` client TASK-017/021 already granted `ingestion:admin`, not a second
+    client: one scope, no second Auth Service data migration, the same reasoning TASK-021's own
+    design note gives) and `Services` (Ingestor/Processor base URLs) sections.
+  - `Gateway.Api/ServiceClients/{ServiceClientOptions,ServiceClientTokenProvider,DownstreamServiceNames,
+    ServiceClientsServiceCollectionExtensions}.cs` (new) - mints and caches the machine token
+    (`System.Threading.Lock` guarding the synchronous cache read/write, a `SemaphoreSlim` serialising
+    the actual mint call so concurrent cache misses coalesce onto one `/token` request rather than
+    each minting their own - the same combination `IngestionRuntimeState` already established for
+    sync state, extended for an async mint step it never needed), refreshed 30s ahead of the token's
+    own expiry.
+  - `Gateway.Api/Admin/AdminProxyController.cs` (new) - `GET /api/v1/ingestion/status` and
+    `GET /api/v1/processing/stats`, each forwarding the downstream response verbatim (body, content
+    type, status code) rather than deserialising into a Gateway-side DTO - what makes "the proxied
+    response is the same data as calling the service directly" true by construction instead of by
+    keeping two copies of the same shape in sync.
+  - `Gateway.Api/Export/ReadingsExportController.cs` (new) - `GET /api/v1/readings/export` streams
+    CSV via `IGatewayReadContext.Readings.AsAsyncEnumerable()` (an EF Core `IQueryable` over a
+    `NoTracking` context - confirmed via `GatewayReadDbContext`'s own `UseQueryTrackingBehavior`) row
+    by row directly onto `Response.Body`, never `ToListAsync`, which is what keeps memory constant
+    regardless of range size. Optional from/to/location/meterType/metricCode filters translate into
+    the same SQL WHERE clause any other query against `Readings` would produce.
+  - Swagger UI: added `Swashbuckle.AspNetCore.SwaggerUI` (UI package only, no SwaggerGen - it just
+    views the JSON document `Microsoft.AspNetCore.OpenApi`'s existing `MapOpenApi()` already
+    produces), wired via `UseSwaggerUI` inside the same `IsDevelopment()` gate `MapOpenApi()` already
+    uses.
+  - Left the new REST routes without `[Authorize]`: the Gateway's own inbound JWT validation isn't
+    configured yet either (no `Auth` section in its appsettings.json at all, `DevBypassEnabled`
+    unset) - that is TASK-041/042's job per `ServiceAuthenticationExtensions`' own doc comment
+    ("finalized/locked down in TASK-042"), not a gap this task introduces or should paper over.
+
+Tests (all new, all against real dependencies rather than mocks):
+  - `ServiceClientTokenProviderTests.cs` - caching/refresh in isolation via a fake `/token` handler
+    and a `FakeTimeProvider` (added `Microsoft.Extensions.TimeProvider.Testing` to the test project):
+    one mint call reused across repeated calls before expiry, a fresh mint once the cache is past its
+    refresh margin.
+  - `GatewayAdminProxyHost.cs` + `AdminProxyEndpointsTests.cs` - the real Gateway calling out, over
+    real HTTP, to the real Ingestor and the real Processor, each guarded by the real Auth Service.
+    Required aliasing THREE cross-service project references at once for the first time in this
+    codebase (`AuthApi`/`IngestorApi`/`ProcessorApi`) - Ingestor's own top-level `Program`, despite
+    having no explicit `public partial class Program;` marker anywhere in its source, still collided
+    (CS0433) with this project's own `Program` once referenced unaliased, so all three needed it, not
+    just the two with an explicit marker. Every downstream `HttpClient`'s primary handler is swapped
+    for the target's own `TestServer.CreateHandler` (only the transport is in-memory - four in-process
+    test servers have no real ports to reach each other on), the same technique
+    `IngestorAdminHost`/`ProcessorAdminHost` already use for the JWKS client. Asserts the proxied
+    response body is byte-for-byte identical to a direct call's, proving the acceptance criterion
+    rather than a hand-written expected shape.
+  - `ReadingsExportTests.cs` - 250 seeded readings one minute apart (large enough that a per-row
+    streaming bug, not just an off-by-one on the first/last row, would show up), filtered by
+    location/time-window and unfiltered cases.
+  - `OpenApiTests.cs` - `/openapi/v1.json` and `/swagger/index.html` both serve successfully in
+    Development; Swagger UI returns 404 outside it, mirroring the same Development-only gate
+    `GraphQlHardeningTests` already proves for GraphQL introspection.
+
+One real bug found and fixed during my own verification (not by a killed prior session this time,
+since I wrote this from scratch): the CSV export test's own time-range filter only covered a 61-minute
+window while asserting all 250 seeded readings should appear - the filter was working correctly
+(61 was the right answer for that window), the test's window was just too narrow for the row count it
+was seeding. Widened the window and moved the "must be excluded" reading further outside it so
+widening the window didn't accidentally pull that reading back in-range too.
+
+Verification:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.sln` - 239/239 passed (32 in Gateway.Api.Tests alone, 10 new).
+
+NEXT: TASK-030 (medium) is now the sole remaining blocker for TASK-040 (priority "high") - its own
+dependencies TASK-027/TASK-009 are both done.

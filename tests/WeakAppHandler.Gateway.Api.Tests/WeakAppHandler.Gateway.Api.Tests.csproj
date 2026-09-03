@@ -10,6 +10,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +28,15 @@
          and an unaliased second reference makes every unqualified `Program` in this test project
          ambiguous (CS0433) the moment both assemblies are on the reference list at once. -->
     <ProjectReference Include="..\..\src\Notification\WeakAppHandler.Notification.Api\WeakAppHandler.Notification.Api.csproj" Aliases="NotificationApi" />
+    <!-- TASK-026: the admin proxy tests run the real Auth Service, Ingestor, and Processor.Worker
+         alongside the Gateway itself. All three are aliased for the same CS0433 reason as
+         WeakAppHandler.Notification.Api above - each project's own top-level `Program` (Ingestor's
+         included, despite having no explicit `public partial class Program;` marker: the compiler's
+         synthesized top-level-statement Program type is visible enough across assemblies to collide
+         regardless) would otherwise be ambiguous with this project's own. -->
+    <ProjectReference Include="..\..\src\Auth\WeakAppHandler.Auth\WeakAppHandler.Auth.csproj" Aliases="AuthApi" />
+    <ProjectReference Include="..\..\src\Ingestor\WeakAppHandler.Ingestor\WeakAppHandler.Ingestor.csproj" Aliases="IngestorApi" />
+    <ProjectReference Include="..\..\src\Processor\WeakAppHandler.Processor.Worker\WeakAppHandler.Processor.Worker.csproj" Aliases="ProcessorApi" />
     <ProjectReference Include="..\Shared\WeakAppHandler.IntegrationTesting\WeakAppHandler.IntegrationTesting.csproj" />
   </ItemGroup>
 
