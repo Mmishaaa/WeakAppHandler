@@ -3895,3 +3895,45 @@ NEXT: TASK-037 (medium) is the pick among the remaining tied-priority unblocked 
 dependency TASK-034 is done, and completing it fully unblocks TASK-038 (priority "high", whose other
 dependency TASK-024 is already done), the same "unblocks a higher-priority task" reasoning this
 session and TASK-021's used.
+
+================================================================================
+[2026-09-03] TASK-037 - DONE
+Frontend chart components: line/area chart with a min/max band (for co2/pm25/humidity), bar chart
+for motion event counts; readable down to a 360px viewport.
+================================================================================
+
+Picked as the next tied-"medium" task per TASK-044's own NEXT note, since completing it fully
+unblocks TASK-038 (priority "high"). Branch `task/task-037-chart-components` from up-to-date main.
+
+Found the branch already implemented (a killed ralph.sh iteration, one new untracked directory,
+nothing else touched) and reviewed it in full before running anything:
+  - `shared/ui/charts/chartLayout.ts` - pure layout helpers shared by both charts: `toNumber` (parses
+    a GraphQL `Decimal` field, typed by codegen as `number | string | null`), `pickTickIndices`
+    (thins x-axis labels to at most N, always keeping the first/last index - the actual mechanism
+    behind the 360px-readability acceptance criterion), `computeNiceTicks` (Heckbert's "nice numbers"
+    algorithm for human-friendly y-axis steps), `roundedTopRectPath` (the bar mark's SVG path).
+  - `RangeLineChart.tsx` - hand-rolled SVG rather than a charting library dependency (none was added
+    to package.json): a `viewBox="0 0 360 200"` with `width:100%; height:auto` in CSS, so it scales
+    down to any viewport rather than only being correct at exactly 360px. Draws the average line and
+    an underlying min/max band as one filled path per contiguous run of defined buckets, splitting
+    into separate segments across a gap (a bucket with no reading) rather than interpolating through
+    it. Falls back to the average value itself when min/max are absent but avg exists.
+  - `MotionBarChart.tsx` - same layout helpers, one rounded-top bar per bucket, width clamped between
+    1 and 24px so a handful of buckets do not render enormous bars.
+  - Both are pure presentational components taking already-bucketed data (`bucketStart`/`avg`/`min`/
+    `max` or `bucketStart`/`count`) - no GraphQL query of their own, which is correctly TASK-038's job
+    (wiring them into the History screen against the Gateway's real aggregations query, TASK-024).
+  - Both render an accessible empty state ("No data for this period") and a summary `aria-label` on
+    the `<svg role="img">` naming the metric/range or total count, rather than relying on visual-only
+    axis labels for a screen reader.
+
+Verification (frontend, from the actual repo state - no isolated re-install needed since this session
+already had a working `node_modules`):
+  - `npm run build` (via `prebuild`'s codegen regeneration) - 647 modules transformed, 0 TypeScript
+    errors.
+  - `npm run lint` - clean.
+  - `npm test -- --run` - 98/98 passed across 20 test files (14 new chart-layout/component assertions
+    plus 84 pre-existing, confirming no regression).
+
+NEXT: TASK-038 (History screen charts, priority "high") is now fully unblocked - both dependencies
+TASK-037 and TASK-024 are done - and is the clear next pick by priority.
