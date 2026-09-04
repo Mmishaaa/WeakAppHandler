@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.ServiceDefaults.Tests;
@@ -31,10 +32,28 @@ public class DevBypassAuthenticationTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Fact]
+    public void DevBypassEnabled_OutsideDevelopment_ThrowsAtStartup()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Environment.EnvironmentName = Environments.Production;
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Auth:DevBypassEnabled"] = "true",
+        });
+
+        Assert.Throws<InvalidOperationException>(() => builder.AddServiceAuthentication());
+    }
+
     private static async Task<WebApplication> BuildAppAsync(bool devBypassEnabled)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
+
+        // Explicit because a test host with no ASPNETCORE_ENVIRONMENT set defaults to Production,
+        // which TASK-042's guard refuses to combine with the bypass.
+        builder.Environment.EnvironmentName = Environments.Development;
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Auth:DevBypassEnabled"] = devBypassEnabled ? "true" : "false",

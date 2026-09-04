@@ -1,7 +1,9 @@
 using HotChocolate;
+using HotChocolate.Authorization;
 using HotChocolate.Data;
 using WeakAppHandler.Gateway.Application.Alerting;
 using WeakAppHandler.Gateway.Application.Readings;
+using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.Gateway.Api.GraphQL;
 
@@ -9,6 +11,12 @@ namespace WeakAppHandler.Gateway.Api.GraphQL;
 /// The Gateway's GraphQL root query type (PRD F4). <c>ingestionStatus</c> belongs to a later task
 /// (TASK-026) that has not built its read model yet.
 /// </summary>
+/// <remarks>
+/// TASK-042: the policy sits on the type, not on each field, so every read this type exposes - and
+/// every field a later task adds to it - requires a Viewer-or-Admin token by default rather than by
+/// remembering to annotate it.
+/// </remarks>
+[Authorize(Policy = ServicePolicies.Viewer)]
 public sealed class Query
 {
     /// <summary>List meters, filterable by location and meter type (PRD F4).</summary>

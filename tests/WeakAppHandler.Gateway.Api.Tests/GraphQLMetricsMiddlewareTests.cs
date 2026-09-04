@@ -14,8 +14,8 @@ public sealed class GraphQLMetricsMiddlewareTests(IntegrationTestFixture fixture
     [Fact]
     public async Task GraphQLRequest_ThenScrapingMetrics_ReportsRequestDurationTaggedWithMethodAndStatus()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query {
@@ -38,8 +38,8 @@ public sealed class GraphQLMetricsMiddlewareTests(IntegrationTestFixture fixture
     [Fact]
     public async Task HealthCheckRequest_ThenScrapingMetrics_DoesNotRecordAGraphQLRequestDuration()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         await client.GetAsync("/health/live");
 

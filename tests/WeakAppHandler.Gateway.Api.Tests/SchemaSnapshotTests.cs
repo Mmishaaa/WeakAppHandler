@@ -19,7 +19,7 @@ public sealed class SchemaSnapshotTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task Schema_MatchesTheCommittedSnapshot()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
 
         // Forces the host (and the schema build it does lazily) the same way NotificationHost's
         // WaitUntilStarted probe does - resolving the executor is what makes it exist.

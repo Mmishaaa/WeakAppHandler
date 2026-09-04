@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WeakAppHandler.Gateway.Api.ServiceClients;
+using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.Gateway.Api.Admin;
 
@@ -12,8 +14,15 @@ namespace WeakAppHandler.Gateway.Api.Admin;
 /// data as calling the Ingestor/Processor directly" true by construction instead of by keeping two
 /// copies of the same shape in sync.
 /// </summary>
+/// <remarks>
+/// TASK-042: every action here is an Administration-screen-only operation (the frontend already
+/// gates the screen itself on the Admin role, TASK-040/041), so the policy sits on the type. The
+/// caller's own Admin token authorizes the request; the machine token
+/// <see cref="ProxySendAsync"/> attaches downstream is a separate credential entirely.
+/// </remarks>
 [ApiController]
 [Route("api/v1")]
+[Authorize(Policy = ServicePolicies.Admin)]
 public sealed class AdminProxyController(IHttpClientFactory httpClientFactory, ServiceClientTokenProvider tokenProvider)
     : ControllerBase
 {

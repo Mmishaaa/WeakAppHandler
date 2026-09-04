@@ -71,8 +71,8 @@ public sealed class AlertsQueryTests(IntegrationTestFixture fixture) : IAsyncLif
     [Fact]
     public async Task Alerts_FilteredByLocation_ReturnsOnlyThatLocationNewestFirst()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query Alerts($location: String!) {
@@ -110,8 +110,8 @@ public sealed class AlertsQueryTests(IntegrationTestFixture fixture) : IAsyncLif
     [Fact]
     public async Task Alerts_FilteredByStatusActive_ExcludesResolvedAlerts()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query Alerts($location: String!) {
@@ -133,8 +133,8 @@ public sealed class AlertsQueryTests(IntegrationTestFixture fixture) : IAsyncLif
     [Fact]
     public async Task Alerts_FilteredBySeverityAndTriggeredAtRange_ReturnsOnlyMatchingRows()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query Alerts($location: String!, $severity: AlertSeverity!, $since: DateTime!) {

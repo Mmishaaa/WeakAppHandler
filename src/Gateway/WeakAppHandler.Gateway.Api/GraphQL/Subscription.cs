@@ -1,6 +1,8 @@
 using HotChocolate;
+using HotChocolate.Authorization;
 using HotChocolate.Execution;
 using HotChocolate.Subscriptions;
+using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.Gateway.Api.GraphQL;
 
@@ -10,6 +12,7 @@ namespace WeakAppHandler.Gateway.Api.GraphQL;
 /// <see cref="ReadingStoredSubscriptionConsumer"/> exists as a receive endpoint of its own rather
 /// than this resolving off <see cref="Application.Readings.IGatewayReadContext"/>.
 /// </summary>
+[Authorize(Policy = ServicePolicies.Viewer)]
 public sealed class Subscription
 {
     /// <summary>

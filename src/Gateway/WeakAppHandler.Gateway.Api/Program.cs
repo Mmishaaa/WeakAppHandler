@@ -1,13 +1,16 @@
+using HotChocolate.Authorization;
 using WeakAppHandler.Gateway.Api.GraphQL;
 using WeakAppHandler.Gateway.Api.ServiceClients;
 using WeakAppHandler.Gateway.Api.Telemetry;
 using WeakAppHandler.Gateway.Infrastructure;
 using WeakAppHandler.ServiceDefaults;
+using WeakAppHandler.ServiceDefaults.Cors;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddServiceCors();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddGatewayInfrastructure(builder.Configuration);
@@ -38,6 +41,10 @@ builder.Services
     .AddFiltering()
     .AddSorting()
     .AddProjections()
+
+    // TASK-042: what makes the [Authorize] attributes on Query/Subscription actually enforce -
+    // without it HotChocolate treats them as inert annotations and every field stays public.
+    .AddAuthorization()
 
     // In-memory only (single-replica limitation, same ADR as the SignalR hub): a subscriber only
     // ever sees events delivered to whichever Gateway process it is connected to, which is fine
@@ -72,6 +79,8 @@ app.UseHttpsRedirection();
 // Required for graphql-ws: HotChocolate's subscription transport rides a WebSocket connection to
 // the same /graphql endpoint MapGraphQL() maps for HTTP.
 app.UseWebSockets();
+
+app.UseCors(ServiceCorsExtensions.PolicyName);
 
 app.UseAuthentication();
 app.UseAuthorization();

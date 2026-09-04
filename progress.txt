@@ -4445,3 +4445,77 @@ trusting the YAML/JSON was correct by inspection alone.
 NEXT: every remaining pending task (TASK-042/043/046/047/048/049/050) now depends, directly or
 transitively, on TASK-042 - there is nothing left independently unblocked for this session to pick.
 Sync with the other session on TASK-042's status before resuming the loop.
+
+================================================================================
+[2026-09-04] TASK-042 - DONE
+Finished JWT auth/CORS hardening across the ServiceDefaults auth seam (Gateway/Notification/
+Ingestor): dev-bypass now fails fast at startup outside Development, CORS is locked to the
+configured frontend origin everywhere, and the Gateway's previously-unauthenticated GraphQL/REST
+surface now requires a real Viewer or Admin JWT.
+
+Picked up a branch (`task/task-042-auth-cors-hardening`) another session had started and abandoned
+mid-edit without ever committing or pushing (confirmed via `git ls-remote --heads` returning
+nothing) - the working tree still had every file from that attempt, so this was "finish it", not
+"start over": reviewed every diff already sitting in the tree against the real source before
+trusting any of it, rather than assuming it was correct because it looked complete.
+
+What was built (all already in the tree, reviewed and kept as-is unless noted):
+  - `ServiceAuthenticationExtensions.AddServiceAuthentication` - throws `InvalidOperationException`
+    at startup if `Auth:DevBypassEnabled` is true outside `IHostEnvironment.IsDevelopment()`, so the
+    dev-only bypass can't leak into a production-like config by a stale appsettings flag.
+  - `ServiceCorsExtensions` (new, in ServiceDefaults) - one named CORS policy, origin taken from
+    `Cors:FrontendOrigin`; fails closed (no origins allowed) if that config key is missing rather
+    than defaulting to permissive. Wired into Gateway/Notification/Ingestor's `Program.cs` with
+    `UseCors()` placed before `UseAuthentication()/UseAuthorization()`.
+  - `[Authorize(Policy = ServicePolicies.Viewer)]` on the Gateway's GraphQL `Query`/`Subscription`
+    root types (class-level, so it covers every field under them - HotChocolate can't resolve any
+    nested field without first passing the root's own authorization check) and on
+    `ReadingsExportController`; `[Authorize(Policy = ServicePolicies.Admin)]` on
+    `AdminProxyController`. `.AddAuthorization()` added to the HotChocolate builder chain, since
+    without it `[Authorize]` attributes are inert annotations that enforce nothing.
+  - Gateway `appsettings.json` gained an `Auth` section (it had none before this task) pointed at
+    the Auth Service's JWKS endpoint, plus the `Cors` section.
+  - `schema.graphql` snapshot regenerated and accepted: `.AddAuthorization()` adds the `ApplyPolicy`
+    enum and `@authorize` directive definition, and the root types now carry
+    `@authorize(policy: "ViewerPolicy")`.
+  - Test suite updated throughout `WeakAppHandler.Gateway.Api.Tests`: `GatewayApiFactory` rebuilt
+    from a static `Create()` into an `IAsyncDisposable` that mints real Viewer/Admin tokens through
+    a real in-process Auth Service (`WebApplicationFactory<JwtTokenService>`) and redirects the
+    Gateway's JWKS client at that same in-process server, so every test's token is validated for
+    real rather than through a stubbed principal. Every existing query/export/admin-proxy test that
+    used to call anonymously now attaches `factory.ViewerToken`/`AdminToken`; new tests cover the
+    401/403 paths for the REST admin-proxy and export endpoints.
+
+Two things I did NOT just accept from the abandoned tree:
+  - A live collision: while reviewing, `git status --short` showed the file set still growing
+    between two checks minutes apart - a peer session's background subagent was writing to this
+    same branch concurrently. Coordinated via `ListAgents`/`SendMessage` with that session
+    (`weakapphandler-b0`) and got explicit agreement before touching anything further; it later went
+    unreachable without ever pushing, which is what made "finish it" the right call once its branch
+    was confirmed never to have reached `origin`.
+  - A genuine test bug, not a code bug, caught by refusing to trust the abandoned tree's own test
+    expectations: `GraphQlAuthorizationTests.Query_WithoutAToken_IsRejectedWithUnauthorized` asserted
+    a raw HTTP 401 for an anonymous GraphQL query. Ran it in isolation and printed the actual
+    response instead of guessing: `STATUS=OK BODY={"errors":[{...,"extensions":{"code":
+    "AUTH_NOT_AUTHENTICATED"}}],"data":null}`. This is correct, spec-mandated HotChocolate
+    behaviour, not a bug in the `[Authorize]` wiring - confirmed against HotChocolate's own
+    `AuthorizeRequestMiddleware` source and its own official authorization test suite (fetched from
+    ChilliCream/graphql-platform on GitHub), which asserts `HttpStatusCode.OK` for every one of its
+    equivalent cases: per GraphQL-over-HTTP §6.4.1, the `application/json` response content type
+    always answers 200, folding authorization failures into the `errors` array instead of the HTTP
+    status line. (An HTTP-level 401/403 is still exactly what happens on the Gateway's *REST*
+    surface - `AdminProxyController`/`ReadingsExportController` - because those go through ASP.NET's
+    ordinary `UseAuthentication`/`UseAuthorization` middleware pipeline, which is unrelated to
+    HotChocolate's own transport formatting.) Renamed the test to
+    `Query_WithoutAToken_IsRejectedWithAnAuthenticationError` and rewrote its assertions to match
+    the real, correct contract instead of loosening or deleting it.
+
+Verification, independent of anything the abandoned tree claimed:
+  - `dotnet build WeakAppHandler.sln` - 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.sln` - all 10 test projects green, 274/274 total (Gateway.Api.Tests
+    alone: 40/40, including the corrected authorization test and the new REST 401/403 tests).
+
+NEXT: TASK-043 (least-privilege RabbitMQ/PostgreSQL credentials) is now the only unblocked
+"security"/high-or-above item left - its dependencies (TASK-042, TASK-012, TASK-006) are all done,
+and it's the next highest-priority pending task with satisfied dependencies. Resuming the loop
+there.

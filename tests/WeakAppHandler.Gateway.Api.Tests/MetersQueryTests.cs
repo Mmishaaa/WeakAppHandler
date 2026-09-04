@@ -30,8 +30,8 @@ public sealed class MetersQueryTests(IntegrationTestFixture fixture) : IAsyncLif
     [Fact]
     public async Task Meters_FilteredByLocation_ReturnsOnlyThatMeterWithItsCurrentValues()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query Meters($location: String!) {

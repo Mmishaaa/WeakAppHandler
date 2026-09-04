@@ -8,7 +8,8 @@ namespace WeakAppHandler.ServiceDefaults.Auth;
 
 /// <summary>
 /// Authenticates every request as a configurable dev user, for local development without a
-/// running Auth Service. Must never be enabled outside Development (see TASK-042).
+/// running Auth Service. Never reachable outside Development: TASK-042 made
+/// <see cref="ServiceAuthenticationExtensions.AddServiceAuthentication"/> throw rather than register it.
 /// </summary>
 public sealed class DevBypassAuthenticationHandler(
     IOptionsMonitor<DevBypassAuthenticationOptions> options,

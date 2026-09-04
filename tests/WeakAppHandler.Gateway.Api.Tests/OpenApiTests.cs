@@ -15,7 +15,7 @@ public sealed class OpenApiTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task OpenApiDocument_InDevelopment_IsServedAsJson()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/openapi/v1.json");
@@ -27,7 +27,7 @@ public sealed class OpenApiTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task SwaggerUi_InDevelopment_ServesTheDocumentationPage()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/swagger/index.html");
@@ -41,7 +41,7 @@ public sealed class OpenApiTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task SwaggerUi_OutsideDevelopment_IsNotExposed()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Production");
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Production");
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/swagger/index.html");

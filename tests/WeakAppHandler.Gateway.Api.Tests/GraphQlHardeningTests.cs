@@ -36,7 +36,7 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task DeeplyNestedQuery_IsRejectedWithAnExecutionDepthError()
     {
-        using var factory = GatewayApiFactory.Create(
+        await using var factory = await GatewayApiFactory.CreateAsync(
             fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
         using var client = factory.CreateClient();
 
@@ -53,7 +53,7 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task Introspection_InAProductionLikeEnvironment_IsRefused()
     {
-        using var factory = GatewayApiFactory.Create(
+        await using var factory = await GatewayApiFactory.CreateAsync(
             fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Production");
         using var client = factory.CreateClient();
 
@@ -67,7 +67,7 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task Introspection_InDevelopment_Succeeds()
     {
-        using var factory = GatewayApiFactory.Create(
+        await using var factory = await GatewayApiFactory.CreateAsync(
             fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
         using var client = factory.CreateClient();
 
@@ -85,9 +85,13 @@ public sealed class GraphQlHardeningTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task OrdinaryShallowQuery_IsNotAffectedByTheDepthLimit()
     {
-        using var factory = GatewayApiFactory.Create(
+        await using var factory = await GatewayApiFactory.CreateAsync(
             fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString, environment: "Development");
-        using var client = factory.CreateClient();
+
+        // The only test here that selects a real field rather than a meta-field, so the only one
+        // TASK-042's [Authorize] on Query applies to - an anonymous client would be refused before
+        // the depth rule this test is about ever ran.
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var body = await GraphQlClient.PostAsync(client, "{ meters { id location currentValues { metricCode } } }");
 

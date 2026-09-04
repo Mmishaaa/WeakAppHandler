@@ -3,7 +3,7 @@ schema {
   subscription: Subscription
 }
 
-type Query {
+type Query @authorize(policy: "ViewerPolicy") {
   meters(
     where: MeterReadModelFilterInput @cost(weight: "10")
     order: [MeterReadModelSortInput!] @cost(weight: "10")
@@ -62,7 +62,7 @@ type Query {
   ): [AggregationBucketReadModel!]! @cost(weight: "10")
 }
 
-type Subscription {
+type Subscription @authorize(policy: "ViewerPolicy") {
   onReadingStored(location: String, meterType: String): ReadingStoredPayload!
 }
 
@@ -462,6 +462,16 @@ enum AlertStatus {
   RESOLVED
 }
 
+"Defines when a policy shall be executed."
+enum ApplyPolicy {
+  "Before the resolver was executed."
+  BEFORE_RESOLVER
+  "After the resolver was executed."
+  AFTER_RESOLVER
+  "The policy is applied in the validation step before the execution."
+  VALIDATION
+}
+
 enum SortEnumType {
   ASC
   DESC
@@ -482,6 +492,16 @@ scalar Long
 "The `UUID` scalar type represents a Universally Unique Identifier (UUID) as defined by RFC 9562."
 scalar UUID
   @specifiedBy(url: "https://scalars.graphql.org/chillicream/uuid.html")
+
+"The authorize directive."
+directive @authorize(
+  "The name of the authorization policy that determines access to the annotated resource."
+  policy: String
+  "Roles that are allowed to access the annotated resource."
+  roles: [String!]
+  "Defines when the authorize directive shall be applied. By default the authorize directive is applied before the resolver is executed."
+  apply: ApplyPolicy! = BEFORE_RESOLVER
+) repeatable on OBJECT | FIELD_DEFINITION
 
 "The purpose of the `cost` directive is to define a `weight` for GraphQL types, fields, and arguments. Static analysis can use these weights when calculating the overall cost of a query or response."
 directive @cost(

@@ -2,10 +2,12 @@ using WeakAppHandler.Auth;
 using WeakAppHandler.Auth.Persistence;
 using WeakAppHandler.Auth.Security;
 using WeakAppHandler.ServiceDefaults;
+using WeakAppHandler.ServiceDefaults.Cors;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddServiceCors();
 builder.Services.AddAuthPersistence(builder.Configuration);
 builder.Services.AddOptions<AuthTokenOptions>().Bind(builder.Configuration.GetSection(AuthTokenOptions.SectionName));
 builder.Services.AddSingleton(TimeProvider.System);
@@ -32,6 +34,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(ServiceCorsExtensions.PolicyName);
 
 app.UseAuthentication();
 app.UseAuthorization();

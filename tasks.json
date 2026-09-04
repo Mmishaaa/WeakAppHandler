@@ -781,7 +781,7 @@
         "Шаг 3: Выполнить cross-origin fetch с постороннего origin — убедиться в блокировке CORS"
       ],
       "dependencies": ["TASK-041"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-043",
