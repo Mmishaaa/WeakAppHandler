@@ -1,3 +1,4 @@
+using System.Net;
 using WeakAppHandler.IntegrationTesting;
 
 namespace WeakAppHandler.Gateway.Api.Tests;
@@ -44,8 +45,8 @@ public sealed class ReadingsExportTests(IntegrationTestFixture fixture) : IAsync
     [Fact]
     public async Task Export_FilteredByLocationAndTimeWindow_StreamsExactlyTheMatchingRowsAsCsv()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         using var response = await client.GetAsync(
             $"/api/v1/readings/export?location={Uri.EscapeDataString(_targetLocation)}" +
@@ -67,8 +68,8 @@ public sealed class ReadingsExportTests(IntegrationTestFixture fixture) : IAsync
     [Fact]
     public async Task Export_WithNoFilters_IncludesReadingsFromEveryLocation()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         using var response = await client.GetAsync("/api/v1/readings/export");
         response.EnsureSuccessStatusCode();
@@ -78,6 +79,21 @@ public sealed class ReadingsExportTests(IntegrationTestFixture fixture) : IAsync
 
         Assert.Contains(_targetLocation, locations);
         Assert.Contains(_otherLocation, locations);
+    }
+
+    /// <summary>
+    /// TASK-042: the export is a Viewer-policy read, so an anonymous caller must be refused rather
+    /// than handed a CSV of every reading in the database.
+    /// </summary>
+    [Fact]
+    public async Task Export_WithoutAToken_IsRejectedWithUnauthorized()
+    {
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/readings/export");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     private static async Task<(string Header, IReadOnlyList<string[]> Rows)> ReadCsvAsync(HttpResponseMessage response)

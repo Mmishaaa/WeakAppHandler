@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="HotChocolate.AspNetCore" />
+    <PackageReference Include="HotChocolate.AspNetCore.Authorization" />
     <PackageReference Include="HotChocolate.Data" />
     <PackageReference Include="HotChocolate.Data.EntityFramework" />
 

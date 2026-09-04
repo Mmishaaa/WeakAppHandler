@@ -32,4 +32,16 @@ internal static class GraphQlClient
 
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
+
+    /// <summary>
+    /// For tests whose subject is the transport response itself rather than the GraphQL payload -
+    /// TASK-042's 401/403, where the status code is the assertion and the body is only corroborating
+    /// detail. Neither helper above surfaces the <see cref="HttpResponseMessage"/>, and the caller
+    /// owns disposing what this returns.
+    /// </summary>
+    public static Task<HttpResponseMessage> PostRawAsync(
+        HttpClient client,
+        string query,
+        object? variables = null) =>
+        client.PostAsJsonAsync("/graphql", new { query, variables });
 }

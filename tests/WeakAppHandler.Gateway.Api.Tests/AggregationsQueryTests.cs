@@ -59,8 +59,8 @@ public sealed class AggregationsQueryTests(IntegrationTestFixture fixture)
             await ProcessorSchemaSeed.AddReadingAsync(context, meterId, metricCode, 500m, anchor.AddHours(hour));
         }
 
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var body = await GraphQlClient.PostAsync(
             client,
@@ -120,8 +120,8 @@ public sealed class AggregationsQueryTests(IntegrationTestFixture fixture)
         await ProcessorSchemaSeed.AddReadingAsync(context, meterId, metricCode, 20m, bucketStart.AddMinutes(25));
         await ProcessorSchemaSeed.AddReadingAsync(context, meterId, metricCode, 30m, bucketStart.AddMinutes(45));
 
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var body = await GraphQlClient.PostAsync(
             client,
@@ -165,8 +165,8 @@ public sealed class AggregationsQueryTests(IntegrationTestFixture fixture)
         // second row to the result at all once the location filter narrows the `series` CTE.
         await ProcessorSchemaSeed.AddReadingAsync(context, otherMeterId, metricCode, 999m, bucketStart.AddMinutes(10));
 
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var body = await GraphQlClient.PostAsync(
             client,

@@ -52,7 +52,9 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
         HttpClient authClient,
         HttpClient ingestorClient,
         HttpClient processorClient,
-        string machineToken)
+        string machineToken,
+        string adminToken,
+        string viewerToken)
     {
         _gatewayFactory = gatewayFactory;
         _ingestorFactory = ingestorFactory;
@@ -63,10 +65,13 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
         IngestorClient = ingestorClient;
         ProcessorClient = processorClient;
         MachineToken = machineToken;
+        AdminToken = adminToken;
+        ViewerToken = viewerToken;
     }
 
-    /// <summary>Talks to the Gateway. Its own admin proxy routes carry no auth requirement of their
-    /// own yet (TASK-041/042's job) - the Gateway mints its own machine token internally.</summary>
+    /// <summary>Talks to the Gateway. Carries no credentials of its own: since TASK-042 the admin
+    /// proxy routes require an Admin token of the caller's, which each test attaches per request -
+    /// the machine token the Gateway mints internally is a separate credential entirely.</summary>
     public HttpClient Client { get; }
 
     /// <summary>Talks to the real Ingestor directly, for comparing a direct call against the
@@ -79,6 +84,16 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
     /// <summary>A real client-credentials token carrying <c>ingestion:admin</c>, for the direct calls
     /// above - the Gateway's own proxied calls mint and attach their own copy internally.</summary>
     public string MachineToken { get; }
+
+    /// <summary>A real user token for the seeded admin, minted by the Auth Service's own /login -
+    /// what TASK-042's Admin policy on the proxy routes requires.</summary>
+    public string AdminToken { get; }
+
+    /// <summary>
+    /// A real user token for the seeded viewer - authenticates fine but carries the wrong role,
+    /// which is what makes it the right negative case for an admin-only surface.
+    /// </summary>
+    public string ViewerToken { get; }
 
     public static async Task<GatewayAdminProxyHost> StartAsync(IntegrationTestFixture fixture, string virtualHost)
     {
@@ -172,6 +187,13 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
             builder.UseSetting("RabbitMq:Username", RabbitMqIntegrationFixture.Username);
             builder.UseSetting("RabbitMq:Password", RabbitMqIntegrationFixture.Password);
 
+            // TASK-042: the Gateway now validates its own inbound tokens too, against the same real
+            // Auth Service the downstream services already validate against.
+            builder.UseSetting("Auth:Issuer", JwtTokenService.Issuer);
+            builder.UseSetting("Auth:Audience", JwtTokenService.Audience);
+            builder.UseSetting("Auth:JwksUri", "http://localhost/.well-known/jwks.json");
+            builder.UseSetting("Auth:RequireHttpsMetadata", "false");
+
             builder.ConfigureTestServices(services =>
             {
                 services.Configure<MassTransitHostOptions>(options =>
@@ -185,6 +207,8 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
                 // configuration each client got from ServiceClientsServiceCollectionExtensions
                 // still runs, so this proves that wiring too, not just a hand-rolled substitute.
                 services.AddHttpClient(ServiceClientTokenProvider.HttpClientName)
+                    .ConfigurePrimaryHttpMessageHandler(authFactory.Server.CreateHandler);
+                services.AddHttpClient(ServiceAuthenticationExtensions.JwksHttpClientName)
                     .ConfigurePrimaryHttpMessageHandler(authFactory.Server.CreateHandler);
                 services.AddHttpClient(DownstreamServiceNames.Ingestor)
                     .ConfigurePrimaryHttpMessageHandler(ingestorFactory.Server.CreateHandler);
@@ -212,7 +236,9 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
             authClient,
             ingestorClient,
             processorClient,
-            await RequestMachineTokenAsync(authClient));
+            await RequestMachineTokenAsync(authClient),
+            await RequestUserTokenAsync(authClient, AuthSeedData.AdminEmail, AuthSeedData.AdminPassword),
+            await RequestUserTokenAsync(authClient, AuthSeedData.ViewerEmail, AuthSeedData.ViewerPassword));
     }
 
     public async ValueTask DisposeAsync()
@@ -243,6 +269,18 @@ internal sealed class GatewayAdminProxyHost : IAsyncDisposable
         using var response = await authClient.PostAsJsonAsync(
             "/token",
             new { clientId = AuthSeedData.ServiceClientId, clientSecret = AuthSeedData.ServiceClientSecret });
+
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("accessToken").GetString()!;
+    }
+
+    /// <summary>The password grant, alongside <see cref="RequestMachineTokenAsync"/>'s
+    /// client-credentials one: the proxy's own callers are browser users, not machines.</summary>
+    private static async Task<string> RequestUserTokenAsync(HttpClient authClient, string email, string password)
+    {
+        using var response = await authClient.PostAsJsonAsync("/login", new { email, password });
 
         response.EnsureSuccessStatusCode();
 

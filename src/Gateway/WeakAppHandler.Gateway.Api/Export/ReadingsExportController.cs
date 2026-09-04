@@ -1,7 +1,9 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WeakAppHandler.Gateway.Application.Readings;
+using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.Gateway.Api.Export;
 
@@ -17,6 +19,7 @@ namespace WeakAppHandler.Gateway.Api.Export;
 /// </summary>
 [ApiController]
 [Route("api/v1/readings")]
+[Authorize(Policy = ServicePolicies.Viewer)]
 public sealed class ReadingsExportController(IGatewayReadContext readContext) : ControllerBase
 {
     private const string CsvHeader = "id,meterId,location,meterType,metricCode,observedAt,valueNumeric,valueBool,isChanged";

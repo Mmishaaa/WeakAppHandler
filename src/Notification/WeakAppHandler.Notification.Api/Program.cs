@@ -5,11 +5,13 @@ using WeakAppHandler.Notification.Api.Alerting;
 using WeakAppHandler.Notification.Api.Persistence;
 using WeakAppHandler.Notification.Api.RealTime;
 using WeakAppHandler.ServiceDefaults;
+using WeakAppHandler.ServiceDefaults.Cors;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddServiceCors();
 builder.Services.AddSignalR();
 
 // Registered ahead of AddAlerting's TryAddSingleton (TASK-031), so this — not the logging default —
@@ -42,6 +44,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(ServiceCorsExtensions.PolicyName);
 
 app.UseAuthentication();
 app.UseAuthorization();

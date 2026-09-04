@@ -45,8 +45,8 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_FilteredByLocationAndOneHourWindow_ReturnsOnlyMatchingRows()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var page = await QueryPageAsync(client, first: 100, after: null);
 
@@ -59,8 +59,8 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_PaginatedThroughAllPages_CursorIsStableAndCoversEveryRowExactlyOnce()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var seenObservedAt = new HashSet<DateTimeOffset>();
         string? cursor = null;
@@ -90,8 +90,8 @@ public sealed class ReadingsQueryTests(IntegrationTestFixture fixture) : IAsyncL
     [Fact]
     public async Task Readings_RequestingPageSizeAboveTheMaximum_ReturnsValidationErrorInsteadOfData()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query Readings($first: Int) {

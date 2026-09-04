@@ -8,7 +8,8 @@ namespace WeakAppHandler.ServiceDefaults.Auth;
 
 /// <summary>
 /// JWT/JWKS authentication seam shared by every service host, with a dev-bypass switch for
-/// local development without a running Auth Service (finalized/locked down in TASK-042).
+/// local development without a running Auth Service - refused outright outside Development
+/// (TASK-042), so no deployment can turn authentication off by configuration alone.
 /// </summary>
 public static class ServiceAuthenticationExtensions
 {
@@ -26,6 +27,13 @@ public static class ServiceAuthenticationExtensions
 
         var authSection = builder.Configuration.GetSection("Auth");
         var devBypassEnabled = authSection.GetValue("DevBypassEnabled", false);
+
+        if (devBypassEnabled && !builder.Environment.IsDevelopment())
+        {
+            throw new InvalidOperationException(
+                "Auth:DevBypassEnabled is not allowed outside the Development environment.");
+        }
+
         var defaultScheme = devBypassEnabled
             ? DevBypassDefaults.AuthenticationScheme
             : JwtBearerDefaults.AuthenticationScheme;

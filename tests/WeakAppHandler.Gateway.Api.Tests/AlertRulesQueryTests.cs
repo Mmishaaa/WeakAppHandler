@@ -26,8 +26,8 @@ public sealed class AlertRulesQueryTests(IntegrationTestFixture fixture) : IAsyn
     [Fact]
     public async Task AlertRules_FilteredByMetricCode_ReturnsThisTestsOwnRule()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         const string query = """
             query AlertRules($metricCode: String!) {
@@ -63,8 +63,8 @@ public sealed class AlertRulesQueryTests(IntegrationTestFixture fixture) : IAsyn
     [Fact]
     public async Task AlertRules_Unfiltered_IncludesTheFiveSeedRulesAlongsideThisTestsOwnRule()
     {
-        using var factory = GatewayApiFactory.Create(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
-        using var client = factory.CreateClient();
+        await using var factory = await GatewayApiFactory.CreateAsync(fixture.Postgres.ConnectionString, fixture.RabbitMq.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(factory.ViewerToken);
 
         var body = await GraphQlClient.PostAsync(client, "{ alertRules { id metricCode } }");
 
