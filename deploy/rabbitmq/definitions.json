@@ -5,23 +5,71 @@
   "product_version": "3.13.0",
   "users": [
     {
-      "name": "guest",
-      "password": "guest",
+      "name": "admin",
+      "password": "admin_rmq_password",
       "tags": ["administrator"]
+    },
+    {
+      "name": "ingestor",
+      "password": "ingestor_rmq_password",
+      "tags": []
+    },
+    {
+      "name": "processor",
+      "password": "processor_rmq_password",
+      "tags": []
+    },
+    {
+      "name": "notification",
+      "password": "notification_rmq_password",
+      "tags": []
+    },
+    {
+      "name": "gateway",
+      "password": "gateway_rmq_password",
+      "tags": []
     }
   ],
   "vhosts": [
     {
-      "name": "/"
+      "name": "weakapphandler"
     }
   ],
   "permissions": [
     {
-      "user": "guest",
-      "vhost": "/",
+      "user": "admin",
+      "vhost": "weakapphandler",
       "configure": ".*",
       "write": ".*",
       "read": ".*"
+    },
+    {
+      "user": "ingestor",
+      "vhost": "weakapphandler",
+      "configure": "^readings\\.exchange$",
+      "write": "^readings\\.exchange$",
+      "read": "^$"
+    },
+    {
+      "user": "processor",
+      "vhost": "weakapphandler",
+      "configure": "^readings\\.(exchange|ingested(_error)?|attempt(_error)?)$",
+      "write": "^readings\\.exchange$",
+      "read": "^readings\\.(ingested|attempt)$"
+    },
+    {
+      "user": "notification",
+      "vhost": "weakapphandler",
+      "configure": "^readings\\.(exchange|stored(_error)?)$",
+      "write": "^readings\\.exchange$",
+      "read": "^readings\\.stored$"
+    },
+    {
+      "user": "gateway",
+      "vhost": "weakapphandler",
+      "configure": "^readings\\.(exchange|stored\\.gateway(_error)?)$",
+      "write": "^readings\\.exchange$",
+      "read": "^readings\\.stored\\.gateway$"
     }
   ],
   "topic_permissions": [],
