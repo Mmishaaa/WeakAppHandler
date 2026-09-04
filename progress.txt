@@ -4366,3 +4366,82 @@ NEXT: with TASK-042 claimed by another session, TASK-045 (Grafana dashboard prov
 this session's own next pick - its only dependency TASK-044 is done, and it does not touch anything
 TASK-042's session is working in (ServiceDefaults/Auth, Cors, or any service's Program.cs). Sync with
 the other session before resuming TASK-042 itself or anything downstream of it (TASK-043/046/047+).
+
+================================================================================
+[2026-09-04] TASK-045 - DONE
+Provisioned Grafana dashboard: an auto-loaded dashboard (WeakApp poll outcomes/failure rate,
+circuit-breaker state, and the rest of PRD F10's metric list) with a Prometheus data source wired
+through provisioning, no manual configuration after startup.
+
+================================================================================
+
+Second consecutive pick made specifically because TASK-042 (the actual next "critical" priority)
+remained claimed by the other session throughout this task too. Done in its own isolated `git
+worktree` (`../WeakAppHandler-task045`) for the same reason as TASK-007: the shared working
+directory was still mid-edit on the other session's branch.
+
+Verified every Prometheus metric name and label this dashboard's panels query against the REAL
+OpenTelemetry Prometheus exporter output rather than guessing at OTel's naming/unit-suffix
+conventions - wrote a disposable ASP.NET Core probe referencing the real `WeakAppHandler.ServiceDefaults`
+project (so it gets the exact same `ConfigureServiceTelemetry` wiring every real service does),
+registered `Meter`/`Counter`/`Histogram`/`ObservableGauge` instruments matching each service's real
+instrument names (`IngestorMetrics`, `ProcessorMetrics`, `NotificationMetrics`, `GatewayMetrics`,
+MassTransit's own built-in instrumentation), and read the actual `/metrics` scrape output. This is
+what caught, before writing a single dashboard panel, that OTel's Prometheus exporter expands unit
+abbreviations into full words (`ms` -> `..._milliseconds_bucket/_sum/_count`) and drops
+count-style bracketed units (`{poll}`/`{message}`/`{state}`) entirely from the metric name, and that
+every tag key with a dot in it (`messaging.masstransit.destination`) becomes underscore-separated
+in the exposed label name - none of which is obvious from the C# source alone.
+
+What was built:
+  - `deploy/prometheus/prometheus.yml` - scrape config targeting `ingestor`/`processor`/`gateway`/
+    `notification` on port 8080 (matching the in-container port convention `weak-app`'s own compose
+    entry already uses) - the service names TASK-047's docker-compose.yml will assign once it
+    containerises the application services, which have no Dockerfiles yet as of this task.
+  - `deploy/grafana/provisioning/datasources/prometheus.yml` - auto-provisions the one Prometheus
+    data source, pointed at the `prometheus` service TASK-047 will place on the same `observability`
+    network Grafana sits on.
+  - `deploy/grafana/provisioning/dashboards/dashboards.yml` - the dashboard *provider* definition
+    (lives in `/etc/grafana/provisioning/dashboards`), pointed at a *separate* directory
+    (`/var/lib/grafana/dashboards`) for the actual dashboard JSON, so Grafana never tries to parse
+    this YAML file itself as a dashboard.
+  - `deploy/grafana/dashboards/weakapphandler-overview.json` - one dashboard, eight panels covering
+    every F10 metric: poll outcomes (the WeakApp-failure-rate panel the acceptance criteria calls
+    out by name), the circuit-breaker state gauge (the other acceptance-criteria panel, with a value
+    mapping from 0-3 to Closed/HalfOpen/Open/Isolated), poll latency p95, queue consumption rate
+    (MassTransit's own receive-rate metric), processing latency p95, deduplicated/dead-lettered
+    counts, alerts raised/resolved by severity, and GraphQL request duration p95.
+
+Verification, since the real docker-compose.yml has no Prometheus/Grafana containers yet
+(TASK-047's job) and this task's own acceptance criteria assume `docker compose up` already brings
+them up: reproduced the same provisioning mechanism directly with real containers rather than
+trusting the YAML/JSON was correct by inspection alone.
+  - Ran the disposable metrics probe above, confirming its real `/metrics` output byte-for-byte
+    matches every metric name and label this dashboard's panel queries reference.
+  - Started a real `prom/prometheus` container with a scrape config pointed at the probe
+    (`host.docker.internal`) and confirmed via Prometheus's own `/api/v1/targets` that the scrape
+    target came up healthy.
+  - Started a real `grafana/grafana` container with `deploy/grafana/provisioning` and
+    `deploy/grafana/dashboards` bind-mounted exactly as TASK-047's compose file will need to mount
+    them, and confirmed via Grafana's own API (`/api/datasources`, `/api/search?type=dash-db`) that
+    both the data source and the dashboard provisioned automatically with zero manual steps - the
+    literal acceptance criterion.
+  - Ran every one of the dashboard's eight PromQL queries through Grafana's own datasource-proxy
+    endpoint and confirmed each resolves with the correct label set and, for the two counters set to
+    a known non-zero value in the probe (`processor_messages_deduplicated_total` = 2,
+    `processor_messages_dead_lettered_total` = 1), the exact expected value round-tripped through
+    Prometheus and Grafana correctly. The two `rate()`-based queries returned 0 and one
+    `histogram_quantile` returned `NaN` - both expected and understood, not bugs: a synthetic
+    counter set once has no meaningful rate yet, and a histogram quantile needs more than one scrape
+    sample in its window to resolve to a real number, which a freshly-started monitoring stack
+    (real or this verification) does not have in its first few seconds either.
+  - One real environment mistake found and fixed mid-verification, not a code bug: Git Bash's
+    automatic MSYS path conversion silently rewrote container-side bind-mount paths like
+    `/etc/grafana/provisioning` into a Windows path before `docker run` ever saw them, which is why
+    the first verification attempt showed nothing provisioned at all despite the files being
+    correct - `MSYS_NO_PATHCONV=1` on the `docker run`/`docker exec` calls fixed it.
+  - Tore down every verification container/network afterward; nothing here is part of the commit.
+
+NEXT: every remaining pending task (TASK-042/043/046/047/048/049/050) now depends, directly or
+transitively, on TASK-042 - there is nothing left independently unblocked for this session to pick.
+Sync with the other session on TASK-042's status before resuming the loop.

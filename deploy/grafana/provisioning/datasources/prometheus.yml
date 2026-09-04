@@ -1,0 +1,13 @@
+# TASK-045: auto-provisions the Prometheus data source on Grafana startup - PRD F10's "no manual
+# dashboard/data-source configuration after docker compose up". `prometheus` is the service name
+# TASK-047's docker-compose.yml gives the Prometheus container on the same `observability` network
+# Grafana itself sits on.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

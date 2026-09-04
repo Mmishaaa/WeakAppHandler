@@ -835,7 +835,7 @@
         "Шаг 3: Остановить WeakApp — убедиться, что дашборд отражает рост частоты отказов"
       ],
       "dependencies": ["TASK-044"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-046",

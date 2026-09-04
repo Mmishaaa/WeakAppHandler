@@ -1,0 +1,17 @@
+# TASK-045: tells Grafana to auto-load every dashboard JSON in deploy/grafana/dashboards/ on
+# startup, rather than requiring an operator to import one by hand through the UI. TASK-047's
+# docker-compose.yml mounts that host directory to /var/lib/grafana/dashboards below - kept
+# separate from /etc/grafana/provisioning/dashboards (where this file itself lives) so Grafana
+# never tries to parse this YAML provider definition as a dashboard JSON.
+apiVersion: 1
+
+providers:
+  - name: WeakAppHandler
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
