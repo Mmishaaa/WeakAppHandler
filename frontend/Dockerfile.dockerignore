@@ -1,0 +1,21 @@
+# Overrides the root .dockerignore for `docker build -f frontend/Dockerfile .` (BuildKit's
+# <dockerfile>.dockerignore precedence rule) - this build needs frontend/ plus the one committed
+# src/Gateway/.../schema.graphql the codegen step reads, none of which the root ignore file allows
+# through (it excludes frontend/ entirely, since the backend Dockerfiles never need it).
+.git/
+.github/
+docs/
+tests/
+third_party/
+
+**/bin/
+**/obj/
+
+frontend/node_modules/
+frontend/dist/
+frontend/src/gql/
+
+*.md
+.env
+.env.*
+!.env.example
