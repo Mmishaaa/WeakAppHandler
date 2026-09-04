@@ -8,7 +8,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
-COPY Directory.Build.props Directory.Packages.props stylecop.json ./
+COPY Directory.Build.props Directory.Packages.props stylecop.json .editorconfig ./
 COPY src/ src/
 
 RUN dotnet publish src/Ingestor/WeakAppHandler.Ingestor/WeakAppHandler.Ingestor.csproj \

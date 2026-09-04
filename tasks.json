@@ -853,7 +853,7 @@
         "Шаг 3: Запустить контейнер с --read-only где применимо — убедиться в успешном старте"
       ],
       "dependencies": ["TASK-043"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-047",

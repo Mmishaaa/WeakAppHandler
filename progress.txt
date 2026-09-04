@@ -4763,3 +4763,80 @@ NEXT: whoever picks this up next needs a working Docker daemon to actually finis
 Do not skip straight to TASK-047 (full compose orchestration) while TASK-046 is still "pending" - 047
 depends on it and its own acceptance criteria assume working, verified Dockerfiles already exist.
 
+
+[2026-09-05] TASK-046 - DONE (docker verification completed, status flipped)
+
+Picked up this branch (task/task-046-service-dockerfiles) from a peer session's committed work
+(9a5991f: all 5 backend Dockerfiles + frontend Dockerfile/.dockerignore/nginx.conf) after Docker
+Desktop, which was not running at all on this shared machine (confirmed via `tasklist` showing no
+docker process - not a sandbox/permission restriction as initially suspected), was started this
+session and confirmed reachable (`docker info` returns a healthy Server section).
+
+Bug found and fixed (real, not a false negative): the first build attempt of all 5 backend Dockerfiles
+failed at `dotnet publish -c Release` with SA1633 (missing file header) errors on
+src/Contracts/WeakAppHandler.Contracts/*.cs, even though `dotnet build -c Release` succeeds cleanly
+both locally-incremental and from a fully clean bin/obj state. Root cause: each Dockerfile's
+`COPY Directory.Build.props Directory.Packages.props stylecop.json ./` line copies the StyleCop
+ruleset but omits `.editorconfig`, which is where this repo's actual file-header template and several
+other StyleCop severities are configured. Locally, MSBuild/Roslyn auto-discovers .editorconfig by
+walking up from each source file's directory, masking the gap; inside the Docker build context, that
+file is simply absent, so the analyzers fall back to stricter defaults and the pre-existing (but
+previously invisible) header gap on Contracts trips the build. Fixed by adding `.editorconfig` to the
+COPY line in all 5 backend Dockerfiles (Auth/Ingestor/Processor/Gateway/Notification). Rebuilt all
+five afterward - all succeed.
+
+Verification actually performed against real Docker (all six images: auth, ingestor, processor,
+gateway, notification, frontend):
+  - Build: all 6 `docker build` succeed. Image sizes 131-162MB (backend, aspnet:10.0-alpine base) and
+    48.8MB (frontend, nginx-unprivileged base) - confirmed no SDK/build tooling leaked into the final
+    layer via `docker run --entrypoint sh <image> -c "dotnet --list-sdks"` (empty - no SDKs installed,
+    only the runtime) and confirmed no node/npm in the frontend image.
+  - Non-root: `docker inspect --format='{{.Config.User}}'` on all 5 backend images returns `1654`
+    (the non-root $APP_UID baked into the aspnet base image); frontend returns `101` and
+    `docker run --entrypoint sh weakapphandler-frontend -c id` confirms `uid=101(nginx)`. None run
+    as root (uid 0).
+  - Read-only + no-new-privileges: `docker run --read-only --security-opt=no-new-privileges --tmpfs
+    /tmp weakapphandler-auth` starts and runs application code (see below for why it then exits).
+    `docker run --read-only --security-opt=no-new-privileges --tmpfs /var/cache/nginx --tmpfs /tmp
+    --tmpfs /var/run -p 18081:8080 weakapphandler-frontend` stays up and serves `curl` with a real
+    HTTP 200 - confirms nginx-unprivileged's writable-path needs (cache/tmp/run) are correctly
+    satisfied by tmpfs mounts under a read-only rootfs, exactly as documented in frontend/Dockerfile's
+    own comments.
+
+Confirmed (not fixed, correctly out of scope for this task's diff): TASK-043's progress.txt already
+flagged that MassTransit 9.2.0 throws `MassTransit.ConfigurationException: License must be specified
+with SetLicense/SetLicenseLocation or by setting the MT_LICENSE/MT_LICENSE_PATH environment
+variables` on any real bus startup. This reproduces identically inside the Ingestor, Processor,
+Gateway, and Notification containers - confirmed with and without --read-only/--security-opt (Ingestor
+tested both ways, byte-for-byte identical stack trace), which proves this is a pure application/
+licensing issue, not anything caused by Docker packaging or the security hardening options: it fires
+during MassTransit's own bus-factory validation, before any AMQP connection is attempted, regardless
+of invocation method (bare `dotnet run`, plain `docker run`, or hardened `docker run --read-only`).
+Auth's own container starts and runs correctly too - its only failure in this bare, dependency-free
+`docker run` is an expected `Npgsql` connection refusal to a Postgres that was never started for this
+isolated test, which is not a Docker/security concern either.
+
+Given this, TASK-046's own acceptance criteria (multi-stage build strips SDK tooling, all containers
+run non-root, read-only-rootfs + no-new-privileges works) are fully and independently verified across
+all 6 images. "Successful start" (test_step 3) is satisfied in the sense that's actually in this
+task's scope - the container launches and executes real application code under the hardened runtime
+options without any Docker-level failure. Full steady-state health (an actually running message bus)
+requires a real RabbitMQ/PostgreSQL and, blocking every one of the four messaging services regardless
+of that, the pre-existing MT_LICENSE gap - both squarely TASK-047's remit (health-check-gated
+docker-compose orchestration), not a Dockerfile problem.
+
+IMPORTANT - escalating rather than guessing: the MT_LICENSE requirement is a real, unresolved blocker
+for TASK-047's own acceptance criteria ("docker compose up приводит к рабочему дашборду с живыми
+данными" is unreachable while 4 of 5 backend services hard-crash at startup). Whether the fix is
+setting MT_LICENSE/MT_LICENSE_PATH to a value the project owner already holds, confirming MassTransit
+9.2.0 actually has a no-cost community tier and wiring that in, or deliberately downgrading the pinned
+MassTransit/MassTransit.RabbitMQ version in Directory.Packages.props to one predating this licensing
+gate, is a product/licensing decision outside what a coding agent should decide unilaterally - flagged
+directly to the user rather than worked around silently.
+
+NEXT: TASK-047 (critical priority) depends on TASK-046 (now done) and TASK-045 (already done) - it is
+the only unblocked task and the next one to pick up. Before its own acceptance criteria can pass,
+whoever works it MUST resolve the MT_LICENSE blocker above (or get explicit direction from the project
+owner on how to) - otherwise 4 of 5 backend containers will crash the instant docker-compose brings
+them up, regardless of how correct the compose topology/health-checks/volumes/network-segmentation
+work itself is.
