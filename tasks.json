@@ -151,7 +151,7 @@
         "Шаг 3: Убедиться, что ни один ADR не противоречит §4.3 PRD (правила коммуникации)"
       ],
       "dependencies": ["TASK-002", "TASK-003"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-008",

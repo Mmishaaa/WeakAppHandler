@@ -4316,3 +4316,53 @@ Verification:
   - `npm test -- --run` - 160/160 passed (31 files) after the `act()` fix; failed 1/160 before it.
 
 NEXT: TASK-042 (priority "critical") is now fully unblocked - its only dependency TASK-041 is done.
+
+================================================================================
+[2026-09-04] TASK-007 - DONE
+Architecture documentation: docs/architecture.md with a service topology diagram and communication
+rules; docs/adr/ with ADRs for the four required decisions.
+================================================================================
+
+Picked deliberately out of priority order: TASK-042 (the actual next "critical" pick per TASK-041's
+own NEXT note) was already being worked by another live Claude Code session in the same shared
+working directory when this session reached it (confirmed by direct cross-session message exchange -
+they had a subagent mid-flight rewriting ServiceAuthenticationExtensions/ServiceCorsExtensions/every
+service's Program.cs/the whole Gateway.Api.Tests auth wiring). Rather than idle waiting for their
+merge or risk clobbering deep in-progress work on a shared branch, picked TASK-007 instead - a
+verified zero-file-overlap task (pure new markdown under docs/, nothing under src/ or tests/) - and
+did the work in an isolated `git worktree` (`../WeakAppHandler-task007`, its own checkout on its own
+branch) rather than switching the shared working directory's branch, since switching branches there
+while the other session's subagent might still be writing to disk could have corrupted or lost their
+uncommitted work.
+
+Wrote `docs/architecture.md` and four ADRs, cross-checking every factual claim against the actual
+source tree rather than the PRD's original text (which predates several real implementation
+decisions and, per this document's own "Implementation notes" section, get a few technology choices
+wrong - no MediatR, no Recharts, no FluentAssertions, no Playwright anywhere in the solution, despite
+all four appearing in PRD §5's table):
+  - `docs/adr/0001-ingestor-processor-responsibility-split.md` - the Ingestor has no database
+    connection at all; every poll attempt publishes `IngestAttemptRecorded` (exact record shape
+    quoted from `src/Contracts/WeakAppHandler.Contracts/IngestAttemptRecorded.cs`), which is the
+    only way `ingest_batches` ever gets written, from the Processor's own consumer.
+  - `docs/adr/0002-independent-migration-ownership.md` - three independent migrating `DbContext`s
+    (Auth/Processor/Notification, one per owned table set) plus the Gateway's two read-only,
+    non-migrating ones; documents the real TASK-032 bug (`ApplyConfigurationsFromAssembly` letting
+    two contexts in the same assembly absorb each other's entity configurations) as a concrete
+    consequence of why the read-only contexts use explicit per-entity `ApplyConfiguration` instead.
+  - `docs/adr/0003-no-gateway-domain-layer.md` - verified no `WeakAppHandler.Gateway.Domain` project
+    exists and no GraphQL `Mutation` type exists in the schema; every Gateway write is either
+    proxied verbatim (admin REST) or not accepted at all (alert-rule CRUD goes straight from the
+    frontend to Notification's own REST API, bypassing the Gateway).
+  - `docs/adr/0004-signalr-single-replica-limitation.md` - both `AddSignalR()` (Notification) and
+    `AddInMemorySubscriptions()` (Gateway) confirmed to have no backplane configured; documents this
+    as symmetric and additive-to-fix (swap the extension method, no consumer restructuring needed)
+    rather than a structural flaw.
+
+No build/test suite applies to markdown-only documentation; verification here was reading every
+factual claim back against the real source files it describes (entity names, method names, exact
+message contracts, project structure) rather than trusting memory of earlier sessions' work.
+
+NEXT: with TASK-042 claimed by another session, TASK-045 (Grafana dashboard provisioning, medium) is
+this session's own next pick - its only dependency TASK-044 is done, and it does not touch anything
+TASK-042's session is working in (ServiceDefaults/Auth, Cors, or any service's Program.cs). Sync with
+the other session before resuming TASK-042 itself or anything downstream of it (TASK-043/046/047+).
