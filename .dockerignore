@@ -1,0 +1,19 @@
+# Backend build context (repository root). Keeps `docker build -f src/**/Dockerfile .` from sending
+# build artifacts, the frontend's own node_modules, git history, or docs into the daemon.
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+
+.git/
+.github/
+
+docs/
+tests/
+third_party/
+frontend/
+
+*.md
+.env
+.env.*
+!.env.example
