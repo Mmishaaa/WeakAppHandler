@@ -4519,3 +4519,129 @@ NEXT: TASK-043 (least-privilege RabbitMQ/PostgreSQL credentials) is now the only
 "security"/high-or-above item left - its dependencies (TASK-042, TASK-012, TASK-006) are all done,
 and it's the next highest-priority pending task with satisfied dependencies. Resuming the loop
 there.
+
+================================================================================
+[2026-09-04] TASK-043 - DONE
+Least-privilege RabbitMQ/PostgreSQL credentials for the compose stack.
+================================================================================
+
+Picked as the only pending task with all dependencies satisfied (TASK-042/012/006 all done),
+confirmed independently against tasks.json rather than trusting only the previous NEXT note. Branch
+`task/task-043-least-privilege-credentials` from up-to-date main.
+
+Researched the real current state before writing anything: `deploy/postgres/init/01-create-service-
+roles.sql` and `deploy/rabbitmq/definitions.json` are both still TASK-006's own placeholder skeleton
+(broad `ALL PRIVILEGES`, `guest`/`guest` on vhost "/"), exactly as their own comments say ("real
+least-privilege roles are TASK-043's job"). Confirmed via grep across every RabbitMq-topology/DbContext
+source file which tables/queues each service actually owns, since the design has to be right about
+real usage, not the PRD's §8 text (which mentions a stale `alerts.exchange` that was superseded by
+TASK-029's decision to dispatch alerts in-process - the real topology is one shared `readings.exchange`
+topic exchange for `readings.ingested`/`readings.attempt`/`readings.stored`, confirmed in
+`ReadingsTopology.cs`/`ReadingsTopologyExtensions.cs`). Also confirmed (grep across every test host,
+e.g. `ProcessorHost.cs`/`GatewayApiFactory.cs`) that every integration test overrides
+`RabbitMq:*`/`ConnectionStrings:*` via `WebApplicationFactory` config against Testcontainers-provided
+ephemeral broker/DB instances - so editing the real services' `appsettings.json` and the compose
+init files cannot affect any existing test's outcome, only real `docker compose up` usage.
+
+What was built:
+  - `deploy/postgres/init/01-create-service-roles.sql` rewritten: `processor_rw`/`auth_rw`/
+    `notification_rw` (each `CREATE`-granted on schema `public` only, to run their own EF Core
+    migrations - no cross-service grants, since every table lives in the unqualified `public` schema
+    and PostgreSQL denies non-owner access by default with nothing else needed) and `gateway_ro`
+    (PRD §8's own naming - no `CREATE`, no DML grant of any kind, structurally read-only). Since
+    `gateway_ro` has to read tables `processor_rw`/`notification_rw` haven't created yet when this
+    script runs (EF Core migrations run later, at each service's own first startup), its read access
+    is two `ALTER DEFAULT PRIVILEGES FOR ROLE ... GRANT SELECT ON TABLES TO gateway_ro` statements - a
+    standing rule rather than a one-time grant, so it keeps applying to every future migration without
+    this file changing again. Auth's tables are deliberately excluded (Gateway never reads users/
+    service_clients).
+  - `deploy/rabbitmq/definitions.json` rewritten: new dedicated vhost `weakapphandler` (the default "/"
+    is left alone but granted to nobody), `guest` removed, one `admin` user (administrator tag, full
+    rights on the app vhost) as the human/ops login for the management UI so removing `guest` doesn't
+    lock everyone out of port 15672, and one scoped user per service:
+      - `ingestor`: configure/write on `readings.exchange` only, read `^$` (publish-only, owns no queue)
+      - `processor`: configure on `readings.exchange`+`readings.ingested(_error)?`+
+        `readings.attempt(_error)?`, write on `readings.exchange`, read on `readings.ingested`/
+        `readings.attempt`
+      - `notification`: configure on `readings.exchange`+`readings.stored(_error)?`, write on
+        `readings.exchange`, read on `readings.stored`
+      - `gateway`: configure on `readings.exchange`+`readings.stored\.gateway(_error)?`, write on
+        `readings.exchange`, read on `readings.stored.gateway`
+    All four share `configure`+`write` on the shared exchange itself - not an oversight, but a direct
+    consequence of `ServiceMassTransitExtensions.AddServiceMassTransit` calling
+    `ConfigureReadingsTopology()` (declares `Publish<T>` topology for all three message types) on
+    *every* bus regardless of role, plus RabbitMQ's own binding semantics (`queue.bind` needs `write`
+    on the exchange being bound to, in addition to rights on the queue itself) - documented at length
+    in a new comment block in `deploy/rabbitmq/rabbitmq.conf`, since `definitions.json` is plain JSON
+    and can't carry comments. Each service's `read`/queue-level `configure` stays scoped to only the
+    queue(s) it actually owns (plus that queue's own lazily-created `_error` dead-letter sibling); no
+    service can read, configure, or bind another service's queue.
+  - Every service's `appsettings.json` (Ingestor/Processor/Notification/Gateway/Auth) updated to the
+    new vhost/username/password and the renamed Postgres roles (`processor_rw`/`auth_rw`/
+    `notification_rw`/`gateway_ro`), each with an inline `"//"` comment explaining its own scope,
+    matching this codebase's existing documentation convention.
+  - `.env.example` comments rewritten from forward-looking "TASK-043 will replace this" language to
+    describe the actual current state.
+
+Picked up by a second pass of this same session after the run above was killed mid-verification
+(the design/implementation write-up above is accurate and was kept as-is; this note replaces its
+"NOT DONE" status once the verification it was blocked on actually happened). The PowerShell/Docker
+outage it described did not recur - `docker info`/`docker compose` worked normally this pass.
+
+Verification actually performed, against real containers rather than trusting the design by
+inspection (`docker compose down -v` first, since the named volumes already held TASK-006's old
+schema/users from a previous run and PostgreSQL's `docker-entrypoint-initdb.d` scripts only execute
+against a brand-new empty data directory - keeping the stale volume would have silently verified
+nothing):
+  - RabbitMQ: booted clean, log confirmed `Will not seed default virtual host and user` (no `guest`
+    ever created) and "Successfully set permissions" for all four service users against the exact
+    regexes above. `rabbitmqctl list_users` showed only `admin`+the four service accounts. One
+    methodology trap caught and corrected before trusting a wrong result: an unrelated pre-existing
+    `rabbitmq:4-management` container from a different project was already bound to host ports
+    5672/15672 on this machine, so the project's own compose (via a local, gitignored `.env` override
+    from an earlier session's verification) publishes on 55672/15673 instead - my first pass of
+    `curl -u guest:guest http://localhost:15672/...` was unknowingly hitting that other container and
+    "succeeded," which would have been a false failure report if taken at face value. Re-pointed at
+    the correct port (15673) and got the right answer: `guest:guest` -> 401, `admin:admin_rmq_password`
+    -> 200. `rabbitmqctl authenticate_user guest guest` also fails (no such user) and every service
+    account's own password authenticates successfully.
+  - PostgreSQL: `\du` confirmed exactly `processor_rw`/`auth_rw`/`notification_rw`/`gateway_ro` (no
+    leftover TASK-006 role names). Created a table as `processor_rw` and confirmed, as `gateway_ro`:
+    SELECT succeeds (proving the `ALTER DEFAULT PRIVILEGES` rule applies retroactively to a table
+    created after the rule was registered, not just tables that existed when the script ran), while
+    INSERT/UPDATE/DELETE/CREATE TABLE all fail with `permission denied` - the literal acceptance
+    criterion. Also checked the cross-service angle the SQL comments claim but the task's own
+    acceptance criteria don't explicitly require: `notification_rw` can neither read nor write
+    `processor_rw`'s table, confirming isolation is real, not just gateway_ro's read grant masking a
+    broader default.
+  - `dotnet build WeakAppHandler.sln`: 0 warnings, 0 errors. `dotnet test WeakAppHandler.sln`:
+    274/274 across all 10 projects - confirms the earlier session's grep-based claim ("no test reads
+    these files") held up under an actual run, not just an inspection.
+
+One discovery made while trying to go a step further than the task requires, worth recording even
+though it isn't this task's problem to fix: attempted to also start a real service (`dotnet run` on
+Ingestor) against the freshly-provisioned broker, to directly observe whether
+`ConfigureReadingsTopology()`'s shared exchange declaration succeeds under the new per-service
+RabbitMQ permissions (the residual risk the previous pass flagged). It never got that far - it threw
+`MassTransit.ConfigurationException: License must be specified with SetLicense/SetLicenseLocation or
+by setting the MT_LICENSE/MT_LICENSE_PATH environment variables` during `Program.cs`'s
+`MapServiceDefaultsEndpoints` call (ASP.NET's health-check endpoint mapping eagerly resolves the
+MassTransit health check, which eagerly builds the bus) - before any AMQP connection is attempted at
+all. This reproduces for any `dotnet run` of any of the four messaging services, unrelated to this
+task's diff (none of TASK-043's changes touch a `.cs` file, and the exception is thrown deep inside
+`ServiceDefaultsExtensions`/MassTransit's own DI registration, nowhere near RabbitMQ credentials).
+`dotnet test`'s Testcontainers-backed integration tests exercise the identical `AddServiceMassTransit`
+code path against a real broker and pass, so whatever avoids the license check there (most likely:
+those tests never map/hit the health-check endpoint the same way `Program.cs`'s real startup path
+does) doesn't apply to a plain `dotnet run`. Net effect: this codebase cannot currently be run as a
+real, complete service outside of tests at all, regardless of TASK-043 - a pre-existing condition
+neither introduced nor fixed here, and outside this task's scope to chase further. Flagging it
+explicitly since it will block TASK-047's compose-based end-to-end verification specifically, not
+because it belongs in this note otherwise.
+
+NEXT: TASK-046/048/049/050 are next in line once whichever of them still has TASK-043 as a dependency
+is unblocked; check each one's `dependencies` array against the now-updated `tasks.json` rather than
+assuming from priority order alone. Whoever picks up the next messaging-adjacent task should budget
+time to at least confirm whether `MT_LICENSE` (env var or `SetLicense()` call) is the real fix for
+the discovery above, since it will otherwise resurface the moment anything tries to actually run
+these services rather than test them.
