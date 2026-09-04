@@ -4258,3 +4258,61 @@ Notification.Api's origin to succeed from a browser (currently no CORS middlewar
 in the backend - confirmed via a repo-wide grep - which is consistent with TASK-042's own scope
 "CORS restricted to the frontend origin on every public API" not being done yet either; this is a
 pre-existing gap this task didn't introduce, not something TASK-040 should have papered over).
+
+================================================================================
+[2026-09-04] TASK-041 - DONE
+Frontend authentication: login form, in-memory access token (never localStorage/sessionStorage),
+transparent refresh via the httpOnly refresh cookie, Administration hidden from nav and blocked on
+direct URL navigation for the viewer role.
+================================================================================
+
+Picked as the natural next task per TASK-040's own NEXT note. Branch `task/task-041-frontend-auth`
+from up-to-date main.
+
+Found the branch already substantially implemented by a killed ralph.sh iteration and reviewed it
+in full before running anything:
+  - `shared/auth/accessTokenStore.ts` - the ONLY place the access token lives (a module-level
+    variable, never persisted), with a subscribe/notify seam so the REST client, both realtime
+    channels, and the UI (nav gating, header status) can all read the current session without a
+    React context threading it through every layer.
+  - `shared/auth/authApi.ts` - calls the Auth Service directly with `credentials: 'include'` for
+    `/login`/`/refresh` (not through the Gateway's REST proxy, and not through
+    `shared/rest/restClient.ts`, which unconditionally attaches a bearer token neither call has yet).
+  - `shared/auth/authSessionManager.ts` - schedules a silent refresh 30s ahead of the access token's
+    real expiry (`REFRESH_SKEW_MS`), so a request straddling the boundary never carries an
+    already-expired token; a failed refresh (revoked/expired cookie, Auth Service unreachable) just
+    ends the session rather than erroring, since the next protected action naturally redirects to
+    /login. `resumeAuthSession` (called once at app startup) is what survives a full page reload
+    despite the access token being deliberately memory-only - the reload wipes the module-level
+    variable, but the 7-day httpOnly refresh cookie does not.
+  - `app/RequireAdmin.tsx` - redirects home rather than a bespoke access-denied screen; `nav-items.ts`
+    gained an `adminOnly` flag AppShell filters on, so a viewer never sees the Administration link at
+    all, and typing the URL directly still hits the route guard.
+  - `shared/auth/AuthStatus.tsx` - header widget: a "Log in" link when signed out, identity + a
+    logout control when signed in. `logout()` only clears the in-memory session (the Auth Service has
+    no revoke endpoint - out of this task's frontend-only scope; a returning visit within the
+    cookie's 7-day lifetime resumes transparently again).
+
+One real bug found and fixed during my own verification, not by the killed session (its own
+progress.txt entry, if it wrote one, never ran the suite to find this): `AppShell.test.tsx`'s
+"shows a Log in link... signed-in identity..." test called `setAuthSession(...)` directly in the
+test body, outside of `act()`, then asserted on the DOM immediately afterward. `setAuthSession`'s
+listener notification calls a React state setter (`useAuthSession`'s `useState` setter) completely
+outside any render or event-handler context React's testing utilities know to wrap, so the
+resulting re-render was not guaranteed to have flushed before the assertion ran (and did not, in
+the actual run - `getByText('admin@example.com · Admin')` failed to find the element). Fixed by
+wrapping the `setAuthSession` call in `act(() => ...)`, forcing the update to flush synchronously
+first.
+
+Tests: `accessTokenStore.test.ts`, `authSessionManager.test.ts` (fake timers driving the actual
+30s-before-expiry refresh schedule and its failure path), `RequireAdmin.test.tsx`,
+`loginValidation.test.ts`/`LoginForm.test.tsx`, plus `AppShell.test.tsx` extended for nav-hiding and
+the header identity widget - 160/160 passed after the one fix above.
+
+Verification:
+  - `npm run build` (via `prebuild`'s codegen regeneration) - 686 modules transformed, 0 TypeScript
+    errors.
+  - `npm run lint` - clean.
+  - `npm test -- --run` - 160/160 passed (31 files) after the `act()` fix; failed 1/160 before it.
+
+NEXT: TASK-042 (priority "critical") is now fully unblocked - its only dependency TASK-041 is done.

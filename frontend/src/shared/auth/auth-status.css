@@ -1,0 +1,31 @@
+.auth-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.auth-status__identity {
+  color: var(--color-text-muted);
+}
+
+.auth-status__logout {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.auth-status__login-link {
+  font-size: 0.8125rem;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.auth-status__login-link:hover {
+  text-decoration: underline;
+}

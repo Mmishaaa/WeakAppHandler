@@ -763,7 +763,7 @@
         "Шаг 3: Залогиниться как viewer, вручную перейти на маршрут /administration — убедиться в редиректе или отказе"
       ],
       "dependencies": ["TASK-040", "TASK-009"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-042",

@@ -20,4 +20,8 @@ export const runtimeConfig = {
   /** Notification.Api's own REST origin for alert-rules CRUD (TASK-030/040) - a different service
    * from the Gateway, so it needs its own base URL rather than reusing gatewayRestUrl. */
   notificationApiUrl: readEnv('VITE_NOTIFICATION_API_URL', 'https://localhost:7031'),
+
+  /** Auth Service origin for /login and /refresh (TASK-041) - yet another service, called
+   * directly rather than through the Gateway's proxy. */
+  authApiUrl: readEnv('VITE_AUTH_API_URL', 'https://localhost:7238'),
 }
