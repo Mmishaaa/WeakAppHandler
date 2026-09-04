@@ -1,0 +1,27 @@
+# TASK-045/PRD §10: scrapes every backend service's OpenTelemetry Prometheus exporter (each
+# service's own /metrics endpoint, wired by ServiceDefaultsExtensions.ConfigureServiceTelemetry).
+# Target hostnames are the service names TASK-047's docker-compose.yml assigns on the `observability`
+# network - not yet real containers as of this task (TASK-045 lands before TASK-047 containerises the
+# application services), so this file is provisioned now and becomes scrapeable once that lands.
+# Port 8080 matches the convention this repo's other container (weak-app, docker-compose.yml)
+# already uses for its in-container HTTP port.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ingestor
+    static_configs:
+      - targets: ["ingestor:8080"]
+
+  - job_name: processor
+    static_configs:
+      - targets: ["processor:8080"]
+
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8080"]
+
+  - job_name: notification
+    static_configs:
+      - targets: ["notification:8080"]
