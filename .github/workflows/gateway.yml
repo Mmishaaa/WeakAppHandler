@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/Gateway/**'
       - 'tests/WeakAppHandler.Gateway.Api.Tests/**'
+      - 'src/Auth/**'
       - 'src/Processor/WeakAppHandler.Processor.Domain/**'
       - 'src/Processor/WeakAppHandler.Processor.Application/**'
       - 'src/Processor/WeakAppHandler.Processor.Infrastructure/**'
@@ -24,6 +25,7 @@ on:
     paths:
       - 'src/Gateway/**'
       - 'tests/WeakAppHandler.Gateway.Api.Tests/**'
+      - 'src/Auth/**'
       - 'src/Processor/WeakAppHandler.Processor.Domain/**'
       - 'src/Processor/WeakAppHandler.Processor.Application/**'
       - 'src/Processor/WeakAppHandler.Processor.Infrastructure/**'
