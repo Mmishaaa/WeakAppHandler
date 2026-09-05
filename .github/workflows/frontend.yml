@@ -3,16 +3,8 @@ name: Frontend CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'frontend/**'
-      - 'src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql'
-      - '.github/workflows/frontend.yml'
   push:
     branches: [main]
-    paths:
-      - 'frontend/**'
-      - 'src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql'
-      - '.github/workflows/frontend.yml'
 
 concurrency:
   group: frontend-ci-${{ github.ref }}
@@ -29,7 +21,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # See the backend workflows (e.g. auth.yml) for why this is a job-level path filter (job
+      # always runs, steps are gated on its output) rather than a paths: filter on the trigger
+      # itself: a required status check tied to a path-filtered trigger never gets reported for a
+      # PR that doesn't touch these paths, which leaves branch protection waiting forever on a
+      # check that will never arrive.
+      - name: Check relevant paths changed
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            relevant:
+              - 'frontend/**'
+              - 'src/Gateway/WeakAppHandler.Gateway.Api/schema.graphql'
+              - '.github/workflows/frontend.yml'
+
       - name: Setup Node
+        if: steps.filter.outputs.relevant == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -37,21 +45,26 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        if: steps.filter.outputs.relevant == 'true'
         run: npm ci
 
       - name: Lint
+        if: steps.filter.outputs.relevant == 'true'
         run: npm run lint
 
       # Runs codegen (prebuild) against the committed schema.graphql, then tsc -b + vite build.
       - name: Typecheck and build
+        if: steps.filter.outputs.relevant == 'true'
         run: npm run build
 
       - name: Unit tests
+        if: steps.filter.outputs.relevant == 'true'
         run: npm test
 
       # TASK-050 introduces the actual Playwright suite; this step activates itself once that
       # config/script exists, so this workflow won't need editing again to pick it up.
       - name: End-to-end tests (Playwright, if configured)
+        if: steps.filter.outputs.relevant == 'true'
         run: |
           if [ -f "playwright.config.ts" ] || [ -f "playwright.config.js" ]; then
             npx playwright install --with-deps

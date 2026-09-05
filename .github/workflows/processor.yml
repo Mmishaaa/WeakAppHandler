@@ -3,34 +3,8 @@ name: Processor CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src/Processor/**'
-      - 'tests/WeakAppHandler.Processor.Infrastructure.Tests/**'
-      - 'src/ServiceDefaults/**'
-      - 'src/SharedKernel/**'
-      - 'src/Contracts/**'
-      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
-      - 'processor.slnf'
-      - 'Directory.Build.props'
-      - 'Directory.Packages.props'
-      - '.editorconfig'
-      - 'stylecop.json'
-      - '.github/workflows/processor.yml'
   push:
     branches: [main]
-    paths:
-      - 'src/Processor/**'
-      - 'tests/WeakAppHandler.Processor.Infrastructure.Tests/**'
-      - 'src/ServiceDefaults/**'
-      - 'src/SharedKernel/**'
-      - 'src/Contracts/**'
-      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
-      - 'processor.slnf'
-      - 'Directory.Build.props'
-      - 'Directory.Packages.props'
-      - '.editorconfig'
-      - 'stylecop.json'
-      - '.github/workflows/processor.yml'
 
 concurrency:
   group: processor-ci-${{ github.ref }}
@@ -44,21 +18,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # See auth.yml for why this is a job-level path filter (job always runs, steps are gated on
+      # its output) rather than a paths: filter on the trigger itself: a required status check tied
+      # to a path-filtered trigger never gets reported for a PR that doesn't touch those paths,
+      # which leaves branch protection waiting forever on a check that will never arrive.
+      #
+      # Includes src/Auth/** - ProcessorAdminHost.cs (Processor.Infrastructure.Tests) references
+      # AuthApi::WeakAppHandler.Auth.* directly and boots a real in-process Auth host for its own
+      # authorization tests, so a regression in Auth's code can break this suite too.
+      - name: Check relevant paths changed
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            relevant:
+              - 'src/Processor/**'
+              - 'tests/WeakAppHandler.Processor.Infrastructure.Tests/**'
+              - 'src/Auth/**'
+              - 'src/ServiceDefaults/**'
+              - 'src/SharedKernel/**'
+              - 'src/Contracts/**'
+              - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
+              - 'processor.slnf'
+              - 'Directory.Build.props'
+              - 'Directory.Packages.props'
+              - '.editorconfig'
+              - 'stylecop.json'
+              - '.github/workflows/processor.yml'
+
       - name: Setup .NET
+        if: steps.filter.outputs.relevant == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet restore processor.slnf
 
       # Directory.Build.props sets TreatWarningsAsErrors + StyleCop/.NET analyzers globally, so this
       # build step is also the lint/static-analysis gate - a warning here fails the workflow.
       - name: Build (warnings as errors)
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet build processor.slnf --configuration Release --no-restore
 
       - name: Test
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet test processor.slnf --configuration Release --no-build --logger "console;verbosity=normal"
 
       - name: Build Docker image
+        if: steps.filter.outputs.relevant == 'true'
         run: docker build -f src/Processor/WeakAppHandler.Processor.Worker/Dockerfile -t weakapphandler-processor:ci .
