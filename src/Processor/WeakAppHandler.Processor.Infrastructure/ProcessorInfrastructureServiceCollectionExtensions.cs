@@ -7,6 +7,7 @@ using WeakAppHandler.Processor.Application.Stats;
 using WeakAppHandler.Processor.Application.Telemetry;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
+using WeakAppHandler.Processor.Infrastructure.Retention;
 
 namespace WeakAppHandler.Processor.Infrastructure;
 
@@ -40,6 +41,9 @@ public static class ProcessorInfrastructureServiceCollectionExtensions
         // the transaction it opens lives and dies inside that delivery's scope.
         services.TryAddScoped<IReadingBatchWriter, MeterReadingBatchWriter>();
         services.TryAddScoped<IngestionRecorder>();
+
+        services.AddOptions<RetentionOptions>().Bind(configuration.GetSection(RetentionOptions.SectionName));
+        services.TryAddScoped<IRetentionJob, RetentionJob>();
 
         return services;
     }

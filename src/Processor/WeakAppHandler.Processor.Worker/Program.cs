@@ -3,6 +3,7 @@ using Npgsql;
 using WeakAppHandler.Processor.Infrastructure;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
+using WeakAppHandler.Processor.Worker.Retention;
 using WeakAppHandler.ServiceDefaults;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
@@ -11,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddProcessorInfrastructure(builder.Configuration);
 builder.Services.AddControllers();
+builder.Services.AddHostedService<RetentionBackgroundService>();
 
 builder.AddServiceMassTransit(
     bus =>

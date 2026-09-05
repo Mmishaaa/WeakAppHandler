@@ -175,6 +175,8 @@ services:
       ConnectionStrings__Processor: Host=postgres;Port=5432;Database=weakapphandler;Username=processor_rw;Password=processor_password
       Auth__JwksUri: http://auth:8080/.well-known/jwks.json
       RabbitMq__Host: rabbitmq
+      Retention__WindowDays: ${RETENTION_WINDOW_DAYS:-30}
+      Retention__IntervalMinutes: ${RETENTION_INTERVAL_MINUTES:-60}
     depends_on:
       postgres:
         condition: service_healthy
