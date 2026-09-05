@@ -50,3 +50,5 @@ to refetch, since a dropped connection can miss events a persisted list needs to
 
 Copy `.env.example` to `.env.local` to point either transport at a non-default URL (defaults match
 the Gateway/Notification `https` `dotnet run` profiles).
+
+<!-- ci deadlock fix verification, throwaway -->
