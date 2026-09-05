@@ -5151,3 +5151,74 @@ sorted - the workflow content itself is complete and verified, only the repo-set
 missing. TASK-050 (Playwright + demo scenarios) still depends on TASK-049 - once this is genuinely
 "done" (merged), 050 becomes the only remaining pending task, in addition to whatever TASK-048
 (retention job, owned by the peer session) leaves behind.
+
+[2026-09-05] TASK-049 - DONE (branch protection blocker resolved, a real deadlock bug found+fixed)
+
+Continuation of the peer session's PARTIAL entry above. The 7 CI workflow files were already
+complete and verified there; this closes out the one blocked acceptance criterion and one new bug
+found while doing so.
+
+Repo visibility: the branch-protection API's 403 was confirmed for real (not assumed) - asked the
+user directly rather than deciding unilaterally, since making a repo public vs. paying for GitHub
+Pro is a business decision, not a coding one. User chose: make the repo public. Did a quick secret
+scan first (no .env or credential files ever tracked, confirmed via `git log --all -- .env` and
+`git check-ignore`) before running `gh repo edit --visibility public`. Confirmed via
+`gh repo view --json isPrivate` (false) and immediately re-tried the branch-protection PUT, which
+now succeeds.
+
+Branch protection configured on main: required status checks ("Build, test, and package" - shared
+by all 5 backend workflows, "Lint, typecheck, build, and test", "Validate Conventional Commits
+title"), required_pull_request_reviews (0 approvals - forces changes through a PR without demanding
+an actual reviewer), enforce_admins: true, allow_force_pushes/allow_deletions: false. Verified a
+direct `git push origin main` is rejected outright ("GH006: Protected branch update failed... 
+Changes must be made through a pull request").
+
+Also caught while merging TASK-049's own PR: my PR title ("TASK-049: ...", matching every prior
+PR in this repo's history) failed pr-title.yml's Conventional Commits check - a real, deliberate
+behavior change this task introduces. Renamed to "ci: add per-service GitHub Actions workflows and
+PR title check" to comply; going forward, PR titles in this repo need Conventional Commits prefixes
+(feat/fix/chore/docs/style/refactor/perf/test/build/ci/revert), not the "TASK-XXX:" convention used
+through TASK-048.
+
+BUG FOUND AND FIXED (real, not hypothetical) - required-status-check deadlock: after merging
+TASK-049 and configuring branch protection, a genuinely correct follow-up PR (#52, adding
+src/Auth/** to gateway.yml/processor.yml's triggers - Gateway.Api.Tests/Processor.Infrastructure.
+Tests both boot a real in-process Auth host via GatewayApiFactory.cs/ProcessorAdminHost.cs, same
+as Ingestor/Notification already covered) got stuck in mergeable_state "blocked"/"pending" forever
+despite all 3 of its actual checks passing. Root cause, confirmed via the API
+(`commits/{sha}/status` showing overall state "pending" with an empty statuses array despite 3
+successful check-runs): required_status_checks matches by check *name*, and a workflow whose
+*trigger* itself is path-filtered (paths: under on.pull_request/on.push) never creates a check run
+at all for a PR that doesn't touch those paths - PR #52 only touched gateway.yml/processor.yml, so
+frontend.yml's "Lint, typecheck, build, and test" check (a required context) never got reported,
+and GitHub waits forever for a required check that will structurally never arrive. This isn't a
+one-off - it would have permanently blocked every normal, single-service PR in this repo, which is
+nearly all of them.
+
+Fixed properly (not worked around) in all 6 backend/frontend workflows: removed paths: from the
+trigger entirely (workflows now always fire on push/PR to main) and added a job-level
+dorny/paths-filter@v3 step, gating every actual work step on `if: steps.filter.outputs.relevant ==
+'true'`. The job - and its required check - now always completes and reports a result; it just
+skips real work (in ~5-7s) when its own service's paths weren't touched, versus running the full
+build/test/docker steps (1-2 min) when they were. Same check names, so branch protection's
+configuration needed no changes. pr-title.yml was already unconditional (no paths: filter to begin
+with) and needed no change.
+
+Verification actually performed (real GitHub API/Actions, not local approximation):
+  - Two throwaway PRs (opened, exercised, then closed without merging - neither left in the repo):
+    one Auth-only change confirmed (before the deadlock fix) that only auth/ingestor/notification's
+    checks fired and failed on an intentional unused-variable warning, and that `gh pr merge`
+    correctly refused with "the base branch policy prohibits the merge"; a second, frontend-only
+    change confirmed (after the deadlock fix, against the real merged main) that all 5 backend
+    checks now complete in ~5-7s each (skip path, not the 1-2 min real-build path) while frontend's
+    own check still does real work (40s), and `mergeable_state` is "clean" - genuinely mergeable,
+    not stuck.
+  - A direct `git push origin main` was rejected outright (branch protection working correctly for
+    that acceptance criterion too, not just PR-based merges).
+  - dotnet build/test on every touched branch: 0 warnings, 274/274 passing throughout (this task
+    never touches application source, only .github/workflows/**).
+
+NEXT: TASK-050 (Playwright + demo scenarios S1-S7 + README quickstart) is the only task left once
+TASK-048 (retention job) is also done - check tasks.json's done-count and whether TASK-048 has
+merged before starting 050, since 050 only depends on 049 (now done) but the two together would
+close out the full 50-task backlog.
