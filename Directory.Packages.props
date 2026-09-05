@@ -23,9 +23,14 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.18.0-beta.1" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
-    <PackageVersion Include="MassTransit" Version="9.2.0" />
-    <PackageVersion Include="MassTransit.RabbitMQ" Version="9.2.0" />
-    <!-- Pinned to the version MassTransit.RabbitMQ 9.2.0 resolves transitively, so the tests that
+    <!-- Pinned to 8.5.10, the last 8.x release, rather than any 9.x: starting with MassTransit 9,
+         CreateBus throws MassTransit.ConfigurationException ("License must be specified with
+         SetLicense/SetLicenseLocation or ... MT_LICENSE/MT_LICENSE_PATH") unless a commercial
+         license is configured - reproduced for real against RabbitMQ in every messaging service
+         (Ingestor/Processor/Gateway/Notification), not just a config gap. 8.5.10 has no such gate. -->
+    <PackageVersion Include="MassTransit" Version="8.5.10" />
+    <PackageVersion Include="MassTransit.RabbitMQ" Version="8.5.10" />
+    <!-- Pinned to the version MassTransit.RabbitMQ 8.5.10 resolves transitively, so the tests that
          inspect the broker directly speak to it through the exact same client the bus uses. -->
     <PackageVersion Include="RabbitMQ.Client" Version="7.2.1" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />

@@ -4840,3 +4840,42 @@ whoever works it MUST resolve the MT_LICENSE blocker above (or get explicit dire
 owner on how to) - otherwise 4 of 5 backend containers will crash the instant docker-compose brings
 them up, regardless of how correct the compose topology/health-checks/volumes/network-segmentation
 work itself is.
+
+[2026-09-05] HOTFIX - MassTransit downgraded to 8.5.10, MT_LICENSE blocker resolved
+
+Not a numbered TASK - a corequisite fix the user explicitly authorized after TASK-046's progress.txt
+flagged that MassTransit 9.2.0 hard-crashes all 4 messaging services (Ingestor/Processor/Gateway/
+Notification) with `MassTransit.ConfigurationException: License must be specified with
+SetLicense/SetLicenseLocation or ... MT_LICENSE/MT_LICENSE_PATH`, which would otherwise make
+TASK-047's own acceptance criteria ("docker compose up приводит к рабочему дашборду с живыми
+данными") unreachable no matter how correct the compose topology is. Asked the user directly rather
+than guessing at a licensing/product decision; they chose: downgrade MassTransit to the last version
+before this licensing gate exists, rather than supplying a real license key or a possibly-nonexistent
+free-tier env var.
+
+What was done:
+  - Directory.Packages.props: MassTransit and MassTransit.RabbitMQ pinned 9.2.0 -> 8.5.10 (the latest
+    stable 8.x release; verified via NuGet's flat-container version index that 8.5.10 is the newest
+    8.x and that 9.0.0 is the first 9.x). Confirmed MassTransit.RabbitMQ 8.5.10's own nuspec still
+    depends on RabbitMQ.Client 7.2.1 - identical to what 9.2.0 required - so the explicit
+    RabbitMQ.Client pin and its adjoining comment needed no other change beyond updating the version
+    number it references.
+  - No .cs changes were needed anywhere - MassTransit 8.x's AddMassTransit/UsingRabbitMq configuration
+    surface used by ServiceDefaults/ReadingsTopologyExtensions.cs is source-compatible with 9.x's.
+
+Verification actually performed:
+  - dotnet restore + dotnet build WeakAppHandler.sln - 0 warnings, 0 errors.
+  - dotnet test WeakAppHandler.sln - 274/274 passing (same total as before the downgrade - the
+    Testcontainers-backed integration tests exercise the real bus against real RabbitMQ and all
+    still pass under 8.5.10).
+  - Real, disposable infrastructure check (not simulated): rebuilt the Ingestor Docker image against
+    the downgraded package, brought up a fresh `docker compose up -d postgres rabbitmq`, and ran
+    `docker run --network weakapphandler_backend -e RabbitMq__Host=rabbitmq weakapphandler-ingestor`.
+    Log confirms `"Bus started: {HostAddress}","HostAddress":"rabbitmq://rabbitmq/weakapphandler"` -
+    no MT_LICENSE exception, the service reaches its normal polling loop (its 404s against
+    http://localhost:8080/meters are expected - the weakapp container wasn't started for this
+    isolated check). Stack torn down afterward (`docker compose down -v`).
+
+NEXT: TASK-047 (critical, docker-compose orchestration) is now genuinely unblocked - both its
+declared dependencies (TASK-046, TASK-045) are done AND the MT_LICENSE corequisite that would have
+made its own acceptance criteria unreachable is resolved. Pick it up next.
