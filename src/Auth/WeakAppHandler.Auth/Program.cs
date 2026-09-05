@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WeakAppHandler.Auth;
 using WeakAppHandler.Auth.Persistence;
 using WeakAppHandler.Auth.Security;
@@ -29,7 +30,25 @@ using (var scope = app.Services.CreateScope())
     // working, seeded database (users/service_clients ship as migration HasData) with no manual
     // `dotnet ef database update` step. Migrate() is idempotent, so this is also safe to run
     // against an already-migrated database.
-    await db.Database.MigrateAsync();
+    //
+    // Retried rather than a bare call: at container boot, Postgres's own health-gated depends_on
+    // only guarantees Postgres itself is ready - not that this container's network attachment or
+    // DNS resolution for "postgres" has settled yet. Without a retry, that transient failure is an
+    // unhandled exception that crashes the process before Docker Compose finishes attaching every
+    // declared network, which can leave the container permanently stuck restart-looping (found via
+    // a real docker compose run).
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            await db.Database.MigrateAsync();
+            break;
+        }
+        catch (NpgsqlException) when (attempt < 10)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
+    }
 
     var signingKeyProvider = scope.ServiceProvider.GetRequiredService<SigningKeyProvider>();
     var timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
