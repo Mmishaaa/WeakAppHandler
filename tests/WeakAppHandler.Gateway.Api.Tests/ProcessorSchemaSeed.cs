@@ -15,7 +15,9 @@ internal static class ProcessorSchemaSeed
     {
         var context = new CoreDbContext(
             new DbContextOptionsBuilder<CoreDbContext>()
-                .UseNpgsql(connectionString)
+                .UseNpgsql(
+                    connectionString,
+                    npgsql => npgsql.MigrationsHistoryTable(CoreDbContext.MigrationsHistoryTableName))
                 .UseSnakeCaseNamingConvention()
                 .Options);
 

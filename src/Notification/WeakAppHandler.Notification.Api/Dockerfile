@@ -20,9 +20,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
 WORKDIR /app
 
 # $APP_UID is the non-root "app" user (uid 64198) baked into every official .NET 8+ runtime image,
-# Alpine and Debian alike - no need to create a custom user/group ourselves. No Program.cs in this
-# solution calls Database.Migrate() at startup, so schema migrations are applied out-of-band via
-# `dotnet ef database update`, not by this container.
+# Alpine and Debian alike - no need to create a custom user/group ourselves. Program.cs applies
+# EF Core migrations at startup (TASK-047, so a fresh `docker compose up` needs no manual
+# `dotnet ef database update` step) - that writes to PostgreSQL, not the container's own
+# filesystem, so this still never writes to disk and can run with
+# `docker run --read-only --security-opt=no-new-privileges` unmodified.
 USER $APP_UID
 
 ENV ASPNETCORE_HTTP_PORTS=8080

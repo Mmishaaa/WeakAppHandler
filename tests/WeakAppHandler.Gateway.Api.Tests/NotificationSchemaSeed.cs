@@ -24,7 +24,9 @@ internal static class NotificationSchemaSeed
     {
         var context = new AlertingDbContext(
             new DbContextOptionsBuilder<AlertingDbContext>()
-                .UseNpgsql(connectionString)
+                .UseNpgsql(
+                    connectionString,
+                    npgsql => npgsql.MigrationsHistoryTable(AlertingDbContext.MigrationsHistoryTableName))
                 .UseSnakeCaseNamingConvention()
                 .Options);
 

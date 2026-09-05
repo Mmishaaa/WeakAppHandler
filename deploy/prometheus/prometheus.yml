@@ -25,3 +25,7 @@ scrape_configs:
   - job_name: notification
     static_configs:
       - targets: ["notification:8080"]
+
+  - job_name: auth
+    static_configs:
+      - targets: ["auth:8080"]

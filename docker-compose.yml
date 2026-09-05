@@ -1,10 +1,8 @@
 networks:
-  # PRD §4.1/§10 segmentation. NOTE a documented Compose behaviour that matters here: a network
-  # declared at this top level is only actually created once some service attaches to it, so
-  # `edge` stays declared-but-uncreated until the services PRD §4.1 places on it (Gateway,
-  # Notification, Auth, Frontend) join the stack in TASK-047. That is deliberate rather than an
-  # oversight: nothing in this base stack may sit on `edge` without breaking the segmentation
-  # this task exists to establish (WeakApp and PostgreSQL must not be reachable from it).
+  # PRD §4.1/§10 segmentation. `edge` now carries Auth/Gateway/Notification/Frontend (TASK-047):
+  # the browser-facing surfaces. WeakApp and PostgreSQL are never attached to it, so neither is
+  # reachable from the frontend container. Ingestor/Processor have no browser caller (confirmed by
+  # ServiceCorsExtensions' own doc comment) and stay backend+observability only.
   edge:
   backend:
   observability:
@@ -12,6 +10,8 @@ networks:
 volumes:
   postgres-data:
   rabbitmq-data:
+  prometheus-data:
+  grafana-data:
 
 services:
   # Deliberately no `container_name:` on any service. A fixed container_name is global to the
@@ -101,3 +101,238 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  auth:
+    build:
+      context: .
+      dockerfile: src/Auth/WeakAppHandler.Auth/Dockerfile
+    restart: unless-stopped
+    networks:
+      # edge: browser calls /login and /refresh directly (TASK-041). backend: Postgres.
+      # observability: /metrics scrape.
+      - edge
+      - backend
+      - observability
+    ports:
+      - "${AUTH_PORT:-8081}:8080"
+    environment:
+      ConnectionStrings__Auth: Host=postgres;Port=5432;Database=weakapphandler;Username=auth_rw;Password=auth_password
+      Cors__FrontendOrigin: http://localhost:${FRONTEND_PORT:-8086}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # mcr.microsoft.com/dotnet/aspnet:10.0-alpine's default shell is busybox ash (no /dev/tcp),
+      # but the image does carry busybox wget, which --spider uses to make a HEAD-like request
+      # without downloading a body.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ingestor:
+    build:
+      context: .
+      dockerfile: src/Ingestor/WeakAppHandler.Ingestor/Dockerfile
+    restart: unless-stopped
+    networks:
+      # No edge: the admin REST API's only caller is Gateway's server-side proxy, never a browser
+      # directly (ServiceCorsExtensions' own doc comment).
+      - backend
+      - observability
+    ports:
+      - "${INGESTOR_PORT:-8082}:8080"
+    environment:
+      Auth__JwksUri: http://auth:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+      WeakApp__BaseUrl: http://weakapp:8080
+    depends_on:
+      weakapp:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  processor:
+    build:
+      context: .
+      dockerfile: src/Processor/WeakAppHandler.Processor.Worker/Dockerfile
+    restart: unless-stopped
+    networks:
+      - backend
+      - observability
+    ports:
+      - "${PROCESSOR_PORT:-8083}:8080"
+    environment:
+      ConnectionStrings__Processor: Host=postgres;Port=5432;Database=weakapphandler;Username=processor_rw;Password=processor_password
+      Auth__JwksUri: http://auth:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/WeakAppHandler.Gateway.Api/Dockerfile
+    restart: unless-stopped
+    networks:
+      # edge: browser GraphQL/REST. backend: Postgres, RabbitMQ, and the server-side HTTP proxy
+      # calls to Ingestor/Processor, both of which only sit on backend.
+      - edge
+      - backend
+      - observability
+    ports:
+      - "${GATEWAY_PORT:-8084}:8080"
+    environment:
+      ConnectionStrings__Gateway: Host=postgres;Port=5432;Database=weakapphandler;Username=gateway_ro;Password=gateway_password
+      RabbitMq__Host: rabbitmq
+      Auth__JwksUri: http://auth:8080/.well-known/jwks.json
+      Cors__FrontendOrigin: http://localhost:${FRONTEND_PORT:-8086}
+      ServiceClient__TokenUri: http://auth:8080/token
+      Services__Ingestor__BaseUrl: http://ingestor:8080
+      Services__Processor__BaseUrl: http://processor:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      ingestor:
+        condition: service_healthy
+      processor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  notification:
+    build:
+      context: .
+      dockerfile: src/Notification/WeakAppHandler.Notification.Api/Dockerfile
+    restart: unless-stopped
+    networks:
+      # edge: browser-facing AlertsHub (SignalR) and alert-rules REST. backend: Postgres, RabbitMQ.
+      - edge
+      - backend
+      - observability
+    ports:
+      - "${NOTIFICATION_PORT:-8085}:8080"
+    environment:
+      ConnectionStrings__Notification: Host=postgres;Port=5432;Database=weakapphandler;Username=notification_rw;Password=notification_password
+      RabbitMq__Host: rabbitmq
+      Auth__JwksUri: http://auth:8080/.well-known/jwks.json
+      Cors__FrontendOrigin: http://localhost:${FRONTEND_PORT:-8086}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Baked into the SPA's JS bundle at build time (Vite inlines import.meta.env.VITE_*), so
+        # these must be addresses the *browser on the host* can reach - the published host ports
+        # below, not in-network service names (see frontend/Dockerfile's own comment on this).
+        VITE_GATEWAY_GRAPHQL_HTTP_URL: http://localhost:${GATEWAY_PORT:-8084}/graphql
+        VITE_GATEWAY_GRAPHQL_WS_URL: ws://localhost:${GATEWAY_PORT:-8084}/graphql
+        VITE_NOTIFICATION_ALERTS_HUB_URL: http://localhost:${NOTIFICATION_PORT:-8085}/hubs/alerts
+        VITE_GATEWAY_REST_URL: http://localhost:${GATEWAY_PORT:-8084}
+        VITE_NOTIFICATION_API_URL: http://localhost:${NOTIFICATION_PORT:-8085}
+        VITE_AUTH_API_URL: http://localhost:${AUTH_PORT:-8081}
+    restart: unless-stopped
+    networks:
+      # edge only - deliberately no backend/observability attachment, so the frontend container
+      # has no network route to RabbitMQ or PostgreSQL (TASK-047 acceptance criteria).
+      - edge
+    ports:
+      - "${FRONTEND_PORT:-8086}:8080"
+    depends_on:
+      gateway:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    networks:
+      # observability only - Prometheus scrapes ingestor/processor/gateway/notification/auth,
+      # which are also on observability; it never needs backend or edge.
+      - observability
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    networks:
+      - observability
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

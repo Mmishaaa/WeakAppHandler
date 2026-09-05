@@ -160,7 +160,9 @@ internal sealed class ProcessorAdminHost : IAsyncDisposable
     {
         await using var context = new AuthDbContext(
             new DbContextOptionsBuilder<AuthDbContext>()
-                .UseNpgsql(connectionString)
+                .UseNpgsql(
+                    connectionString,
+                    npgsql => npgsql.MigrationsHistoryTable(AuthDbContext.MigrationsHistoryTableName))
                 .UseSnakeCaseNamingConvention()
                 .Options);
 

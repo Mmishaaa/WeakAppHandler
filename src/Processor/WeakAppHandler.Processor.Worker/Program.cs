@@ -1,5 +1,7 @@
+using Microsoft.EntityFrameworkCore;
 using WeakAppHandler.Processor.Infrastructure;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
+using WeakAppHandler.Processor.Infrastructure.Persistence;
 using WeakAppHandler.ServiceDefaults;
 using WeakAppHandler.ServiceDefaults.Messaging;
 
@@ -33,6 +35,16 @@ builder.AddServiceMassTransit(
     });
 
 var app = builder.Build();
+
+// TASK-047: applied here rather than out-of-band, so a fresh `docker compose up` reaches a
+// working, seeded database (metrics ship as migration HasData) with no manual
+// `dotnet ef database update` step. MigrateAsync() is idempotent, so this is also safe to run
+// against an already-migrated database.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<CoreDbContext>();
+    await db.Database.MigrateAsync();
+}
 
 // No UseHttpsRedirection here, unlike the browser-facing hosts: the admin API lives on the backend
 // network only (PRD §10) and its one caller is the Gateway's machine client, so a redirect would

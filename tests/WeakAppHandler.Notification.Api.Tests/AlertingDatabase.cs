@@ -14,7 +14,9 @@ internal static class AlertingDatabase
     public static AlertingDbContext CreateContext(string connectionString)
     {
         var options = new DbContextOptionsBuilder<AlertingDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(
+                connectionString,
+                npgsql => npgsql.MigrationsHistoryTable(AlertingDbContext.MigrationsHistoryTableName))
             .UseSnakeCaseNamingConvention()
             .Options;
 

@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WeakAppHandler.Notification.Api.Admin;
 using WeakAppHandler.Notification.Api.Alerting;
@@ -37,6 +38,16 @@ builder.AddServiceMassTransit(
         context, ReadingsTopology.StoredQueueName, ReadingsTopology.StoredRoutingKey));
 
 var app = builder.Build();
+
+// TASK-047: applied here rather than out-of-band, so a fresh `docker compose up` reaches a
+// working, seeded database (alert_rules ship as migration HasData) with no manual
+// `dotnet ef database update` step. MigrateAsync() is idempotent, so this is also safe to run
+// against an already-migrated database.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AlertingDbContext>();
+    await db.Database.MigrateAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {
