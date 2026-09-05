@@ -1,0 +1,64 @@
+name: Processor CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/Processor/**'
+      - 'tests/WeakAppHandler.Processor.Infrastructure.Tests/**'
+      - 'src/ServiceDefaults/**'
+      - 'src/SharedKernel/**'
+      - 'src/Contracts/**'
+      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
+      - 'processor.slnf'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.editorconfig'
+      - 'stylecop.json'
+      - '.github/workflows/processor.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/Processor/**'
+      - 'tests/WeakAppHandler.Processor.Infrastructure.Tests/**'
+      - 'src/ServiceDefaults/**'
+      - 'src/SharedKernel/**'
+      - 'src/Contracts/**'
+      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
+      - 'processor.slnf'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.editorconfig'
+      - 'stylecop.json'
+      - '.github/workflows/processor.yml'
+
+concurrency:
+  group: processor-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, test, and package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore processor.slnf
+
+      # Directory.Build.props sets TreatWarningsAsErrors + StyleCop/.NET analyzers globally, so this
+      # build step is also the lint/static-analysis gate - a warning here fails the workflow.
+      - name: Build (warnings as errors)
+        run: dotnet build processor.slnf --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test processor.slnf --configuration Release --no-build --logger "console;verbosity=normal"
+
+      - name: Build Docker image
+        run: docker build -f src/Processor/WeakAppHandler.Processor.Worker/Dockerfile -t weakapphandler-processor:ci .

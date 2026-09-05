@@ -1,0 +1,22 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  conventional-commit:
+    name: Validate Conventional Commits title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([a-z0-9._-]+\))?!?: .+'
+          if ! echo "$PR_TITLE" | grep -qE "$pattern"; then
+            echo "::error::PR title '$PR_TITLE' does not follow Conventional Commits, e.g. 'feat: add X' or 'fix(auth): correct Y'."
+            exit 1
+          fi
+          echo "PR title OK: $PR_TITLE"
