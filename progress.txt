@@ -5222,3 +5222,86 @@ NEXT: TASK-050 (Playwright + demo scenarios S1-S7 + README quickstart) is the on
 TASK-048 (retention job) is also done - check tasks.json's done-count and whether TASK-048 has
 merged before starting 050, since 050 only depends on 049 (now done) but the two together would
 close out the full 50-task backlog.
+
+[2026-09-05] TASK-048 - DONE (retention job: rollup + delete, configurable window, real docker verification)
+
+Picked up after a prior session's user assigned it, but left only an empty branch with zero commits
+(no real progress) - reimplemented from scratch.
+
+Design: three steps in one DB transaction, in Processor.Infrastructure/Retention/RetentionJob.cs.
+  1. Roll up every `readings` row older than the cutoff into `readings_hourly` (one row per
+     meter/metric/hour-bucket - numeric readings only, via `AVG/MIN/MAX/SUM/COUNT` grouped by
+     `date_trunc('hour', observed_at)`; there is no aggregate representation for a boolean reading
+     in this schema, so those are left to step 2's cascade). Raw SQL
+     (`ExecuteSqlInterpolatedAsync`), not LINQ - an INSERT...SELECT...GROUP BY has no EF Core
+     translation. `ON CONFLICT (meter_id, metric_code, bucket_start) DO NOTHING` against
+     readings_hourly's own unique index makes a re-run idempotent instead of a duplicate-key crash.
+  2. Delete `ingest_batches` rows older than the cutoff via EF Core's `ExecuteDeleteAsync`.
+     `readings.batch_id` is a required FK configured `DeleteBehavior.Cascade` (confirmed in the
+     PipelineSchema migration), so this single delete removes exactly the raw readings just rolled
+     up in step 1 - a batch's fetched_at and its readings' observed_at are always close together (one
+     poll, one moment), so nothing is deleted from a batch whose readings haven't also aged out. This
+     is why there is no separate "DELETE FROM readings" step at all.
+  3. Delete `processed_messages` rows older than the cutoff (`ExecuteDeleteAsync`) - no FK to
+     anything, would otherwise grow forever.
+
+Configuration: RetentionOptions (WindowDays default 30, IntervalMinutes default 60) bound from the
+"Retention" config section - `Retention__WindowDays`/`Retention__IntervalMinutes` env vars, no code
+change, wired into docker-compose.yml (RETENTION_WINDOW_DAYS/RETENTION_INTERVAL_MINUTES, both
+defaulted in .env.example) and Processor.Worker's appsettings.json.
+
+Two ways to run it, matching the task's own "плановая задача" + "запустить job вручную" wording:
+  - RetentionBackgroundService (Processor.Worker) - a PeriodicTimer loop on IntervalMinutes, one bad
+    run swallowed (logged, not fatal) so a transient failure doesn't take the whole worker down,
+    mirroring IngestionWorker's own resilience pattern in the Ingestor.
+  - POST /api/v1/processing/retention/run on the existing ProcessingAdminController (same
+    ingestion:admin-scoped policy as its other endpoint) - runs the same IRetentionJob synchronously
+    and returns a RetentionResult (cutoff, buckets written, batches deleted, messages deleted) for
+    the caller to inspect immediately, rather than waiting for the next scheduled tick.
+
+Needed one new package reference: Microsoft.Extensions.Options.ConfigurationExtensions (for
+AddOptions<T>().Bind(...)) - Processor.Infrastructure is a plain class library with no ASP.NET Core
+shared framework reference, unlike Program.cs projects where this comes for free. Pinned 10.0.11 in
+Directory.Packages.props, matching every other Microsoft.Extensions.* package in this repo.
+
+Verification actually performed:
+  - dotnet build WeakAppHandler.sln - 0 warnings, 0 errors. dotnet test - 278/278 passing (274 + 4
+    new RetentionJobTests, against a real Testcontainers PostgreSQL, not mocked): rollup correctness
+    (avg/min/max/sum/count over two readings in the same hour bucket) with raw rows and the batch
+    actually gone afterward while a recent batch/reading survives untouched; processed_messages
+    pruning with a recent one surviving; TASK-048's own test_step 3 explicitly - the exact same
+    45-day-old data survives a 30-day-window run untouched, then gets rolled up and deleted once the
+    configured window is shortened to 7 days; calling RunAsync twice on the same data only writes
+    the hourly bucket once (ON CONFLICT DO NOTHING confirmed, not a crash or a duplicate row).
+  - Real, disposable infrastructure check (test_step 1's literal wording - insert test data, run the
+    job manually, inspect the result): fresh `docker compose up -d --build`, inserted two synthetic
+    `energy` readings on a real meter dated 45 days in the past via `psql` directly against the
+    compose Postgres, got a real machine token from the real Auth Service
+    (`POST /login` credentials from README), called `POST /api/v1/processing/retention/run` against
+    the real running Processor container. Response: `{"hourlyBucketsWritten":1,
+    "ingestBatchesDeleted":1,"processedMessagesDeleted":0}`. Confirmed directly in Postgres
+    afterward: the readings_hourly row has the exact expected aggregates (avg 150, min 100, max 200,
+    sum 300, count 2), and both the raw readings and the synthetic ingest_batch are gone. Stack torn
+    down afterward.
+
+Found again, NOT fixed here (pre-existing, out of TASK-048's scope, distinct from what TASK-047's
+hotfix already addressed): the Docker Compose multi-network-attach race that caused Auth/
+Notification to crash-loop (fixed via a migration retry loop in TASK-047's own hotfix) can ALSO
+strand a service that never crashes at all - this run's Gateway container came up missing the
+`backend` network entirely (confirmed via `docker inspect`, identical symptom to the earlier Auth
+bug) despite never restarting once (RestartCount=0) and despite Postgres itself being demonstrably
+reachable and responsive (`pg_isready`, and other containers on the same network querying it fine)
+at the same moment. This means the retry-on-migration fix only ever addressed the crash-loop
+*symptom* for the three services that happen to migrate at startup - it does nothing for a
+non-migrating service like Gateway that just sits permanently unhealthy with no self-recovery path,
+since Docker's `restart:` policy only triggers on process exit, not on a failing healthcheck, and a
+missing network attachment cannot be fixed by the process inside the container restarting itself.
+Whoever hits this needs `docker network connect weakapphandler_backend <container>` as a manual
+recovery step for now - a real, structural fix (eliminating Compose's own attach-order race, e.g. by
+restructuring which services need multiple networks, or scripting a post-up reconciliation check)
+is out of scope for TASK-048 and worth its own follow-up if it keeps recurring.
+
+NEXT: TASK-050 (Playwright S1-S7 + S4 fault-injection tool + README quickstart) is the only task
+left - all 49 others are done. Being worked by peer session weakapphandler-4e (direct user
+instruction, research already completed) as of this entry; check tasks.json/git log before assuming
+it still needs doing.

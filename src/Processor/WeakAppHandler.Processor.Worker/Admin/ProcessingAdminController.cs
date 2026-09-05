@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WeakAppHandler.Processor.Application.Stats;
+using WeakAppHandler.Processor.Infrastructure.Retention;
 using WeakAppHandler.ServiceDefaults.Auth;
 
 namespace WeakAppHandler.Processor.Worker.Admin;
@@ -13,7 +14,7 @@ namespace WeakAppHandler.Processor.Worker.Admin;
 [ApiController]
 [Route("api/v1/processing")]
 [Authorize(Policy = ServicePolicies.IngestionAdmin)]
-public sealed class ProcessingAdminController(ProcessingStatsState stats) : ControllerBase
+public sealed class ProcessingAdminController(ProcessingStatsState stats, IRetentionJob retentionJob) : ControllerBase
 {
     /// <summary>Reports how many messages this process has recorded, deduplicated or dead-lettered.</summary>
     [HttpGet("stats")]
@@ -23,5 +24,18 @@ public sealed class ProcessingAdminController(ProcessingStatsState stats) : Cont
         var snapshot = stats.Snapshot();
 
         return Ok(new ProcessingStatsResponse(snapshot.Processed, snapshot.Deduplicated, snapshot.DeadLettered));
+    }
+
+    /// <summary>
+    /// Runs the retention job (TASK-048) immediately rather than waiting for its next scheduled
+    /// tick - the manual-trigger path the task's own test_steps call for.
+    /// </summary>
+    [HttpPost("retention/run")]
+    [ProducesResponseType<RetentionResult>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<RetentionResult>> RunRetention(CancellationToken cancellationToken)
+    {
+        var result = await retentionJob.RunAsync(cancellationToken);
+
+        return Ok(result);
     }
 }
