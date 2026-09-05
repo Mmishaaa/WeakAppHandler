@@ -5004,3 +5004,66 @@ NEXT: TASK-048 (retention job) and TASK-049 (CI workflows) both depend only on T
 are the next unblocked tasks - either could be picked up next; TASK-050 additionally depends on 049.
 Nothing else needed before starting either. A peer session confirmed via tasks.json that these three
 are the only remaining pending items, all downstream of this one.
+
+[2026-09-05] HOTFIX - startup migration retry, fixing a real docker-compose-up crash-loop found while independently re-verifying TASK-047
+
+Not a numbered TASK. TASK-047 (full compose orchestration) was merged by a peer session with a
+claimed "verified end-to-end" (login->JWT->GraphQL round trip, restart-persistence, network
+segmentation). Per this project's standing rule of never trusting a peer's own claimed verification,
+re-ran `docker compose up` myself from a fully clean state (`docker compose down -v` first) and found
+a real, reproducible bug: the Auth container got stuck permanently restart-looping, never reaching
+`healthy`, which in turn blocked every dependent service (gateway/notification/frontend all stayed
+un-started because their own depends_on: condition: service_healthy never got satisfied).
+
+Root cause: Auth/Notification/Processor's Program.cs each run `await db.Database.MigrateAsync()`
+eagerly at startup (added in TASK-047, so a fresh clone needs no manual `dotnet ef database update`).
+Auth's own DB connection failed once with `Npgsql.NpgsqlException: Name does not resolve` for the
+hostname "postgres" - an unhandled exception, since there was no retry - which crashed the process
+immediately. Docker's `restart: unless-stopped` policy restarted it, and `docker inspect` showed the
+running container was missing the `backend` network entirely (only `edge`/`observability` were
+attached), even though docker-compose.yml correctly declares all three for this service and
+`docker compose config` confirms it. Root cause: Compose attaches a multi-network container to its
+first network at container creation and issues separate `docker network connect` calls for the rest
+afterward; if the entrypoint crashes and restarts fast enough, one of those later connect calls can
+lose the race and never land, permanently starving the container of a network its own depends_on
+health-gating (which only orders when postgres is *itself* healthy, not when this container's own
+network attachment has settled) does nothing to prevent. Confirmed empirically:
+`docker network connect weakapphandler_backend weakapphandler-auth-1` on the stuck container
+immediately let it reach `healthy` with no other change - proving the container/DB/credentials were
+all fine, only the network attachment was actually missing. Notification hit the identical failure
+(`Program.cs:49`, same missing-`backend`-network symptom) once Auth's fix unblocked the rest of the
+stack far enough to start it.
+
+Fix: wrapped each of the three `MigrateAsync()` calls (Auth, Notification, Processor - the only three
+that migrate at startup) in a small retry loop (`catch (NpgsqlException) when (attempt < 10)` with a
+2s delay), so a transient connection failure in the first couple of seconds of the container's life -
+whichever of "Postgres isn't quite done starting" or "my own network isn't fully attached yet" caused
+it - gets retried instead of crashing the process.
+
+First attempt used EF Core's `EnableRetryOnFailure` execution strategy instead (the more commonly
+recommended approach for exactly this scenario) - reverted after it caused
+`WeakAppHandler.M2.IntegrationTests` (7/7) and `WeakAppHandler.Processor.Infrastructure.Tests` (4/41)
+to fail: `IngestionRecorder.cs` opens an explicit `BeginTransactionAsync()` for its idempotent batch
+writes, which EF Core's retrying execution strategy does not support ("user-initiated transactions"),
+so it silently broke every consumer test that exercises that path. The manual per-call retry loop
+avoids this entirely since it doesn't touch the DbContext's execution strategy at all - confirmed
+274/274 passing with it in place.
+
+Verification actually performed:
+  - dotnet build - 0 warnings, 0 errors. dotnet test - 274/274 passing.
+  - `docker compose down -v` then a completely fresh `docker compose up -d --build`: all 11
+    containers (10 services + the retry itself counts as one internal restart, not a container
+    restart) reached `healthy` with `RestartCount=0` for every one of Auth/Notification/Processor/
+    Gateway/Ingestor/Frontend - the crash-loop is gone, not just papered over on this one run.
+  - Real login -> JWT -> GraphQL round trip against the fresh stack: `POST /login` (Auth, port 8081)
+    with the seeded viewer credentials returns a real access token; that token against
+    `POST /graphql` (Gateway, port 8084) `{ meters { id } }` returns 18 real meter IDs - live,
+    already-ingested data, not a stub.
+  - Network segmentation: `docker exec` into the frontend container and `wget`-ing `postgres:5432`
+    and `rabbitmq:15672` both fail with "bad address" (DNS resolution itself fails, not just a
+    blocked port) - frontend is correctly not on `backend`.
+  - Stack torn down (`docker compose down -v`) afterward.
+
+NEXT: TASK-048 and TASK-049 are the only unblocked pending tasks (048 depends on TASK-047 alone, 049
+also depends on TASK-047 alone; TASK-050 still depends on TASK-049). Both are now genuinely safe to
+build on - TASK-047's actual runtime behavior on a fresh clone is confirmed working, not just claimed.

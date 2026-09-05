@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using WeakAppHandler.Processor.Infrastructure;
 using WeakAppHandler.Processor.Infrastructure.Ingestion;
 using WeakAppHandler.Processor.Infrastructure.Persistence;
@@ -40,10 +41,24 @@ var app = builder.Build();
 // working, seeded database (metrics ship as migration HasData) with no manual
 // `dotnet ef database update` step. MigrateAsync() is idempotent, so this is also safe to run
 // against an already-migrated database.
+//
+// Retried rather than a bare call: see WeakAppHandler.Auth's Program.cs for why a transient
+// connection failure at container boot needs a retry here instead of crashing the process.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CoreDbContext>();
-    await db.Database.MigrateAsync();
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            await db.Database.MigrateAsync();
+            break;
+        }
+        catch (NpgsqlException) when (attempt < 10)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
+    }
 }
 
 // No UseHttpsRedirection here, unlike the browser-facing hosts: the admin API lives on the backend
