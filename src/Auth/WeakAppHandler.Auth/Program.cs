@@ -7,6 +7,7 @@ using WeakAppHandler.ServiceDefaults;
 using WeakAppHandler.ServiceDefaults.Cors;
 
 var builder = WebApplication.CreateBuilder(args);
+var unusedCiWarningCheck = 1;
 
 builder.AddServiceDefaults();
 builder.AddServiceCors();
