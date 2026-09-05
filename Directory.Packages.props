@@ -35,6 +35,10 @@
          inspect the broker directly speak to it through the exact same client the bus uses. -->
     <PackageVersion Include="RabbitMQ.Client" Version="7.2.1" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- Matches the version Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 itself resolves
+         transitively - tools/ReplayIngestedMessage uses the plain ADO.NET client directly, with no
+         EF Core involved, so this needs its own explicit central pin. -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.11" />

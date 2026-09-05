@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>WeakAppHandler.Tools.ReplayIngestedMessage</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Publishes with the real MassTransit client so the wire format (exchange, routing key,
+         envelope headers) is identical to what the Ingestor itself would send - a hand-rolled HTTP
+         publish against RabbitMQ's management API would risk a subtly wrong envelope the real
+         consumers silently ignore. -->
+    <PackageReference Include="MassTransit" />
+    <PackageReference Include="MassTransit.RabbitMQ" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Contracts\WeakAppHandler.Contracts\WeakAppHandler.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\ServiceDefaults\WeakAppHandler.ServiceDefaults\WeakAppHandler.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>
