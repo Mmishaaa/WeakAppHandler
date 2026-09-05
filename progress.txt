@@ -4879,3 +4879,128 @@ Verification actually performed:
 NEXT: TASK-047 (critical, docker-compose orchestration) is now genuinely unblocked - both its
 declared dependencies (TASK-046, TASK-045) are done AND the MT_LICENSE corequisite that would have
 made its own acceptance criteria unreachable is resolved. Pick it up next.
+
+[2026-09-05] TASK-047 - DONE (full docker-compose orchestration, verified against real Docker)
+
+Picked this up as the only unblocked critical-priority task (TASK-046/045 done, TASK-048/049/050 all
+chain behind 047). Extended the base docker-compose.yml (weakapp/postgres/rabbitmq only) into the full
+stack: added auth/ingestor/processor/gateway/notification/frontend/prometheus/grafana services with
+health-check-gated depends_on, correct network placement (edge: auth/gateway/notification/frontend;
+backend: all 5 backend services + weakapp/postgres/rabbitmq; observability: all 5 backend services +
+prometheus/grafana), named volumes (prometheus-data, grafana-data, alongside the existing
+postgres-data/rabbitmq-data), and .env.example additions for every new published port plus Grafana
+admin credentials. Every appsettings.json for Auth/Ingestor/Processor/Gateway/Notification already had
+explicit "TASK-047 replaces this with the compose service address" comments on every localhost:5091/
+5095/5097/8080 reference - these are now overridden via environment: blocks in docker-compose.yml
+(ConnectionStrings__*, Auth__JwksUri -> http://auth:8080/..., RabbitMq__Host -> rabbitmq,
+Services__Ingestor/Processor__BaseUrl -> in-network names, Cors__FrontendOrigin ->
+http://localhost:${FRONTEND_PORT}). Frontend's six VITE_* URLs are baked in at build time
+(build.args in the frontend service, referencing ${GATEWAY_PORT}/${NOTIFICATION_PORT}/${AUTH_PORT})
+since the browser - not the nginx container - calls them directly; in-network service names would be
+unreachable from a host browser, confirmed via a research subagent survey before writing any compose
+code, avoiding that trap entirely.
+
+This is NOT a config-only task - real, previously-undiscovered bugs surfaced under actual
+docker-compose orchestration. Docker was available and used throughout - every fix below was verified
+by actually bringing up the full 10-container stack, not just reasoning about the compose file. Real
+bugs found and fixed:
+
+1. No service ever applied EF Core migrations automatically. Every one of Auth/Processor/Notification's
+   Program.cs had zero Database.Migrate() call - migrations were "out-of-band, dotnet ef database
+   update" per TASK-046's own Dockerfile comments. That directly broke this task's own acceptance
+   criterion ("docker compose up -> working dashboard with live data, no additional steps"): a fresh
+   Postgres volume left signing_keys/users/etc. simply not existing, and Auth crashed immediately.
+   Fixed by adding "await db.Database.MigrateAsync()" at startup in Auth/Processor/Notification's
+   Program.cs (Gateway is deliberately excluded - ADR-0003, gateway_ro never migrates). Idempotent, so
+   safe against an already-migrated database too. Updated the three Dockerfiles' comments (which
+   explicitly claimed the opposite) and Program.cs to match.
+
+2. Discovered immediately after fixing #1: Auth/Processor/Notification share ONE physical Postgres
+   database (by design, PRD paragraph 4.2), but EF Core's migrations-history table name defaults to the
+   SAME literal "__EFMigrationsHistory" for every DbContext. Whichever service's role migrated first
+   created - and exclusively owned - that one table; the other two got "permission denied for table
+   __EFMigrationsHistory" the instant their own Program.cs tried to migrate. This is a real,
+   pre-existing bug that would have broken "dotnet ef database update" run separately for more than one
+   service against the same database too, not something specific to compose - it just never surfaced
+   before because no prior session had run more than one service's migrations against the same live
+   database in one sitting. Fixed with three distinct MigrationsHistoryTable names
+   (__ef_migrations_history_auth/_processor/_notification), added as a "public const string
+   MigrationsHistoryTableName" on each of AuthDbContext/CoreDbContext/AlertingDbContext respectively,
+   referenced from both the production AddXPersistence/AddXInfrastructure extensions AND every test
+   file that manually constructs one of these three DbContexts for its own pre-test migration step (14
+   test files across Auth.Tests/Processor.Infrastructure.Tests/Notification.Api.Tests/
+   Gateway.Api.Tests/Ingestor.Tests/M2.IntegrationTests - all of them were bypassing the DI-registered
+   extension and building DbContextOptionsBuilder directly, so they needed the exact same fix or the
+   test suite would have hit the identical "already exists"/"permission denied" collision the first
+   time a test brings up more than one of these hosts against a shared fixture database). Verified by
+   running the FULL "dotnet test WeakAppHandler.sln" afterward: 274/274 passing (same total as before
+   this task - no tests lost, none newly skipped).
+
+3. deploy/rabbitmq/definitions.json's per-service ACLs (TASK-043) never actually worked for any
+   consumer role. AMQP's queue.bind operation requires WRITE permission on the destination QUEUE and
+   READ permission on the source EXCHANGE - but processor/notification/gateway's "write" regex only
+   ever matched their shared exchange name, and "read" only ever matched their own queue name(s); the
+   two requirements are cross-matched by the protocol, not symmetric, so every one of these three roles
+   was structurally unable to bind its own consume queue. This is a real, previously-undiscovered bug in
+   TASK-043's own ACLs - confirmed via actual ACCESS_REFUSED errors from a real RabbitMQ 3.13 broker
+   (notification: "write access to queue readings.stored refused"; processor: "configure access to
+   exchange MassTransit:Fault--WeakAppHandler.Contracts:IngestAttemptRecorded-- refused"). Fixed by
+   making write/read mirror the configure regex for each of these three roles (each role's
+   write+read+configure now cover exactly its own topology - still fully scoped away from any other
+   service's resources, so least-privilege intent is preserved, just correctly symmetric this time).
+   Also had to extend processor's pattern specifically to cover
+   ReadingsIngestedFault/IngestAttemptRecordedFault (MassTransit's own PascalCase, no-dots naming
+   convention for its two Fault<T> consumer queues+exchanges, registered via ConfigureEndpoints since
+   they are not bound to an explicit receive endpoint) - the original "_error" suffix guess in
+   definitions.json never matched anything real. Also added a fifth "auth" scrape job to
+   deploy/prometheus/prometheus.yml, since Auth also calls AddServiceDefaults() and exposes /metrics
+   like every other service, but was missing from TASK-045's job list.
+
+4. Confirmed (documented here, NOT fixed - genuinely can't be fixed from the compose file): this
+   shared Docker Desktop/Windows machine hit a real, reproducible network-attachment race during
+   "docker compose up" roughly 1 time in 2 across about 6 fresh down-then-up cycles this session -
+   always the SAME symptom on a DIFFERENT single container each time (confirmed via
+   "docker inspect --format {{json .NetworkSettings.Networks}}": the affected container ends up
+   attached to only one of its declared networks, with empty IPAddress/EndpointID/Gateway fields on
+   that one entry, while "docker compose config" correctly shows all declared networks). Every other
+   container in the same "up" always attaches correctly. Recovery is reliable and cheap: remove just
+   that one service's container and bring it back up again (NOT a full down with volumes) always fixes
+   it, since it forces a clean re-attach. This is a Docker engine/CNI-level race under concurrent
+   multi-network attach load, not a compose config defect - "docker compose config" was checked and
+   confirmed correct every time this happened. Flagging forward: whoever next runs this compose stack
+   on this same shared machine should expect to possibly need that one-container recreate once per
+   "up", and should NOT assume the compose file itself is broken if they see it.
+
+Verification actually performed against real, disposable infrastructure (not simulated), using a
+throwaway .env with COMPOSE_PROJECT_NAME=weakapphandler-verify and host ports offset into the
+18000s/19000s/13000 range specifically to avoid colliding with anything else already running on this
+shared machine (deleted before finishing, not committed - .env is gitignored anyway):
+  - "docker compose up -d" (after a clean volume wipe) brings up all 10 containers healthy with zero
+    manual steps, confirmed twice from a clean slate after the fixes above landed.
+  - "docker compose restart": all 10 containers came back healthy; a GraphQL "meters" query through
+    Gateway returned the exact same 18 auto-registered meters before and after restart, across the
+    named postgres-data volume - acceptance criterion 2 directly confirmed, not just inferred from
+    volume declarations.
+  - Logged in as the seed admin (admin@weakapphandler.local / Admin#12345) via POST /login on the
+    published Auth port, got back a real RS256-signed access token; used it as a Bearer token against
+    Gateway's /graphql on its own published port - "{ meters { location meterType } }" returned real
+    data (18 meters across 6 locations/3 types) that had flowed the entire real pipeline: Ingestor's
+    actual poll of the real WeakApp container -> RabbitMQ (readings.exchange) -> Processor (auto
+    -registration + persistence under processor_rw) -> Gateway (read via gateway_ro). Gateway's own
+    logs confirm it fetched Auth's JWKS from http://auth:8080/.well-known/jwks.json and got a live
+    200 - the in-network JWT validation wiring works, not just "the container starts."
+  - Exec'd into the frontend container and tried wget/nslookup against postgres/rabbitmq by hostname:
+    both fail with "bad address" (DNS resolution itself fails, since frontend is deliberately edge
+    -only) - acceptance criterion 3 directly confirmed. (nslookup against "gateway" DOES resolve, which
+    is correct and expected: frontend/gateway/notification/auth intentionally share the edge network
+    for container-to-container segmentation policy, per the network's own doc comment in
+    docker-compose.yml; the browser bypasses Docker networking entirely via published ports for its
+    own calls to these services, so this shared edge placement is about segmentation, not about how
+    the SPA actually reaches its APIs.)
+  - "dotnet build WeakAppHandler.sln" (Debug and Release): 0 warnings, 0 errors, both configurations.
+  - "dotnet test WeakAppHandler.sln": 274/274 passing.
+
+NEXT: TASK-048 (retention job) and TASK-049 (CI workflows) both depend only on TASK-047 (now done) and
+are the next unblocked tasks - either could be picked up next; TASK-050 additionally depends on 049.
+Nothing else needed before starting either. A peer session confirmed via tasks.json that these three
+are the only remaining pending items, all downstream of this one.

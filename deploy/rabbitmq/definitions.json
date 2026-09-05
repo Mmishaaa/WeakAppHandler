@@ -53,23 +53,23 @@
     {
       "user": "processor",
       "vhost": "weakapphandler",
-      "configure": "^readings\\.(exchange|ingested(_error)?|attempt(_error)?)$",
-      "write": "^readings\\.exchange$",
-      "read": "^readings\\.(ingested|attempt)$"
+      "configure": "^(readings\\.(exchange|ingested|attempt)|ReadingsIngestedFault|IngestAttemptRecordedFault|MassTransit:Fault--WeakAppHandler\\.Contracts:(IngestAttemptRecorded|ReadingsIngested)--)$",
+      "write": "^(readings\\.(exchange|ingested|attempt)|ReadingsIngestedFault|IngestAttemptRecordedFault|MassTransit:Fault--WeakAppHandler\\.Contracts:(IngestAttemptRecorded|ReadingsIngested)--)$",
+      "read": "^(readings\\.(exchange|ingested|attempt)|ReadingsIngestedFault|IngestAttemptRecordedFault|MassTransit:Fault--WeakAppHandler\\.Contracts:(IngestAttemptRecorded|ReadingsIngested)--)$"
     },
     {
       "user": "notification",
       "vhost": "weakapphandler",
       "configure": "^readings\\.(exchange|stored(_error)?)$",
-      "write": "^readings\\.exchange$",
-      "read": "^readings\\.stored$"
+      "write": "^readings\\.(exchange|stored(_error)?)$",
+      "read": "^readings\\.(exchange|stored(_error)?)$"
     },
     {
       "user": "gateway",
       "vhost": "weakapphandler",
       "configure": "^readings\\.(exchange|stored\\.gateway(_error)?)$",
-      "write": "^readings\\.exchange$",
-      "read": "^readings\\.stored\\.gateway$"
+      "write": "^readings\\.(exchange|stored\\.gateway(_error)?)$",
+      "read": "^readings\\.(exchange|stored\\.gateway(_error)?)$"
     }
   ],
   "topic_permissions": [],

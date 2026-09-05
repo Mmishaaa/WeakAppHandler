@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using WeakAppHandler.Auth;
 using WeakAppHandler.Auth.Persistence;
 using WeakAppHandler.Auth.Security;
@@ -23,6 +24,13 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+    // TASK-047: applied here rather than out-of-band, so a fresh `docker compose up` reaches a
+    // working, seeded database (users/service_clients ship as migration HasData) with no manual
+    // `dotnet ef database update` step. Migrate() is idempotent, so this is also safe to run
+    // against an already-migrated database.
+    await db.Database.MigrateAsync();
+
     var signingKeyProvider = scope.ServiceProvider.GetRequiredService<SigningKeyProvider>();
     var timeProvider = scope.ServiceProvider.GetRequiredService<TimeProvider>();
     await SigningKeyInitializer.EnsureInitializedAsync(db, signingKeyProvider, timeProvider, CancellationToken.None);

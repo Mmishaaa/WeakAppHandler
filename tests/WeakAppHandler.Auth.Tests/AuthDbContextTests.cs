@@ -40,7 +40,9 @@ public sealed class AuthDbContextTests(IntegrationTestFixture fixture)
     private AuthDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AuthDbContext>()
-            .UseNpgsql(fixture.Postgres.ConnectionString)
+            .UseNpgsql(
+                fixture.Postgres.ConnectionString,
+                npgsql => npgsql.MigrationsHistoryTable(AuthDbContext.MigrationsHistoryTableName))
             .UseSnakeCaseNamingConvention()
             .Options;
 

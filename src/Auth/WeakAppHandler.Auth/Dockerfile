@@ -25,8 +25,9 @@ WORKDIR /app
 
 # $APP_UID is the non-root "app" user (uid 64198) baked into every official .NET 8+ runtime image,
 # Alpine and Debian alike - no need to create a custom user/group ourselves. This app never writes to
-# disk (Serilog goes to the console; EF migrations are applied out-of-band via
-# `dotnet ef database update`, not at container startup), so it can run with
+# its own disk (Serilog goes to the console; EF migrations run against PostgreSQL at startup -
+# TASK-047, so a fresh `docker compose up` needs no manual `dotnet ef database update` step - which
+# writes to the database, not the container's filesystem), so it can still run with
 # `docker run --read-only --security-opt=no-new-privileges` unmodified; those are runtime flags set
 # where the container is started (TASK-047's compose wiring), not something a Dockerfile can declare.
 USER $APP_UID

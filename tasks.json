@@ -871,7 +871,7 @@
         "Шаг 3: Попытаться выполнить сетевой запрос из контейнера frontend к PostgreSQL/RabbitMQ — убедиться в недоступности"
       ],
       "dependencies": ["TASK-046", "TASK-045"],
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "TASK-048",

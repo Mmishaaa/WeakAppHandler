@@ -26,7 +26,9 @@ public sealed class AuthEndpointsTests(IntegrationTestFixture fixture) : IAsyncL
     {
         await using var migrationContext = new AuthDbContext(
             new DbContextOptionsBuilder<AuthDbContext>()
-                .UseNpgsql(fixture.Postgres.ConnectionString)
+                .UseNpgsql(
+                    fixture.Postgres.ConnectionString,
+                    npgsql => npgsql.MigrationsHistoryTable(AuthDbContext.MigrationsHistoryTableName))
                 .UseSnakeCaseNamingConvention()
                 .Options);
         await migrationContext.Database.MigrateAsync();

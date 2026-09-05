@@ -14,7 +14,9 @@ internal static class ProcessorDatabase
     public static CoreDbContext CreateContext(string connectionString)
     {
         var options = new DbContextOptionsBuilder<CoreDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(
+                connectionString,
+                npgsql => npgsql.MigrationsHistoryTable(CoreDbContext.MigrationsHistoryTableName))
             .UseSnakeCaseNamingConvention()
             .Options;
 

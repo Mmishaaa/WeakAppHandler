@@ -20,8 +20,14 @@ public static class ProcessorInfrastructureServiceCollectionExtensions
             ?? throw new InvalidOperationException(
                 "Missing required connection string 'ConnectionStrings:Processor'.");
 
+        // See AuthPersistenceServiceCollectionExtensions for why this needs a name distinct from
+        // EF Core's shared "__EFMigrationsHistory" default: Auth/Processor/Notification share one
+        // physical database, and their writer roles otherwise collide over ownership of that one
+        // table.
         services.AddDbContext<CoreDbContext>(options => options
-            .UseNpgsql(connectionString)
+            .UseNpgsql(
+                connectionString,
+                npgsql => npgsql.MigrationsHistoryTable(CoreDbContext.MigrationsHistoryTableName))
             .UseSnakeCaseNamingConvention());
 
         services.AddHealthChecks().AddDbContextCheck<CoreDbContext>(tags: ["ready"]);

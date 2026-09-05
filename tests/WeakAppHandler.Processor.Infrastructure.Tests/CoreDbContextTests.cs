@@ -108,7 +108,9 @@ public sealed class CoreDbContextTests(IntegrationTestFixture fixture)
     private CoreDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<CoreDbContext>()
-            .UseNpgsql(fixture.Postgres.ConnectionString)
+            .UseNpgsql(
+                fixture.Postgres.ConnectionString,
+                npgsql => npgsql.MigrationsHistoryTable(CoreDbContext.MigrationsHistoryTableName))
             .UseSnakeCaseNamingConvention()
             .Options;
 
