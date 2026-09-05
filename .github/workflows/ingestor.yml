@@ -3,36 +3,8 @@ name: Ingestor CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src/Ingestor/**'
-      - 'tests/WeakAppHandler.Ingestor.Tests/**'
-      - 'src/Auth/**'
-      - 'src/ServiceDefaults/**'
-      - 'src/SharedKernel/**'
-      - 'src/Contracts/**'
-      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
-      - 'ingestor.slnf'
-      - 'Directory.Build.props'
-      - 'Directory.Packages.props'
-      - '.editorconfig'
-      - 'stylecop.json'
-      - '.github/workflows/ingestor.yml'
   push:
     branches: [main]
-    paths:
-      - 'src/Ingestor/**'
-      - 'tests/WeakAppHandler.Ingestor.Tests/**'
-      - 'src/Auth/**'
-      - 'src/ServiceDefaults/**'
-      - 'src/SharedKernel/**'
-      - 'src/Contracts/**'
-      - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
-      - 'ingestor.slnf'
-      - 'Directory.Build.props'
-      - 'Directory.Packages.props'
-      - '.editorconfig'
-      - 'stylecop.json'
-      - '.github/workflows/ingestor.yml'
 
 concurrency:
   group: ingestor-ci-${{ github.ref }}
@@ -46,21 +18,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # See auth.yml for why this is a job-level path filter (job always runs, steps are gated on
+      # its output) rather than a paths: filter on the trigger itself: a required status check tied
+      # to a path-filtered trigger never gets reported for a PR that doesn't touch those paths,
+      # which leaves branch protection waiting forever on a check that will never arrive.
+      - name: Check relevant paths changed
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            relevant:
+              - 'src/Ingestor/**'
+              - 'tests/WeakAppHandler.Ingestor.Tests/**'
+              - 'src/Auth/**'
+              - 'src/ServiceDefaults/**'
+              - 'src/SharedKernel/**'
+              - 'src/Contracts/**'
+              - 'tests/Shared/WeakAppHandler.IntegrationTesting/**'
+              - 'ingestor.slnf'
+              - 'Directory.Build.props'
+              - 'Directory.Packages.props'
+              - '.editorconfig'
+              - 'stylecop.json'
+              - '.github/workflows/ingestor.yml'
+
       - name: Setup .NET
+        if: steps.filter.outputs.relevant == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet restore ingestor.slnf
 
       # Directory.Build.props sets TreatWarningsAsErrors + StyleCop/.NET analyzers globally, so this
       # build step is also the lint/static-analysis gate - a warning here fails the workflow.
       - name: Build (warnings as errors)
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet build ingestor.slnf --configuration Release --no-restore
 
       - name: Test
+        if: steps.filter.outputs.relevant == 'true'
         run: dotnet test ingestor.slnf --configuration Release --no-build --logger "console;verbosity=normal"
 
       - name: Build Docker image
+        if: steps.filter.outputs.relevant == 'true'
         run: docker build -f src/Ingestor/WeakAppHandler.Ingestor/Dockerfile -t weakapphandler-ingestor:ci .
