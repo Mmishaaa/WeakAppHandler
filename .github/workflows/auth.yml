@@ -1,0 +1,62 @@
+name: Auth CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/Auth/**'
+      - 'tests/WeakAppHandler.Auth.Tests/**'
+      - 'src/ServiceDefaults/**'
+      - 'src/SharedKernel/**'
+      - 'src/Contracts/**'
+      - 'auth.slnf'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.editorconfig'
+      - 'stylecop.json'
+      - '.github/workflows/auth.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/Auth/**'
+      - 'tests/WeakAppHandler.Auth.Tests/**'
+      - 'src/ServiceDefaults/**'
+      - 'src/SharedKernel/**'
+      - 'src/Contracts/**'
+      - 'auth.slnf'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.editorconfig'
+      - 'stylecop.json'
+      - '.github/workflows/auth.yml'
+
+concurrency:
+  group: auth-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, test, and package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore auth.slnf
+
+      # Directory.Build.props sets TreatWarningsAsErrors + StyleCop/.NET analyzers globally, so this
+      # build step is also the lint/static-analysis gate - a warning here fails the workflow.
+      - name: Build (warnings as errors)
+        run: dotnet build auth.slnf --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test auth.slnf --configuration Release --no-build --logger "console;verbosity=normal"
+
+      - name: Build Docker image
+        run: docker build -f src/Auth/WeakAppHandler.Auth/Dockerfile -t weakapphandler-auth:ci .

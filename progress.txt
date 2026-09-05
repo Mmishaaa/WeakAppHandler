@@ -5067,3 +5067,87 @@ Verification actually performed:
 NEXT: TASK-048 and TASK-049 are the only unblocked pending tasks (048 depends on TASK-047 alone, 049
 also depends on TASK-047 alone; TASK-050 still depends on TASK-049). Both are now genuinely safe to
 build on - TASK-047's actual runtime behavior on a fresh clone is confirmed working, not just claimed.
+
+[2026-09-05] TASK-049 - PARTIAL (per-service CI workflows done; branch protection blocked by GitHub plan, NOT status=done)
+
+Claimed via cross-session coordination (peer session took TASK-048/retention job instead). Picked
+TASK-049 (CI workflows) since it's higher priority (high vs medium) among the two tasks unblocked by
+TASK-047. Branch: task/task-049-ci-workflows.
+
+Added 7 new files under .github/workflows/, none touching existing backend/frontend source:
+  - auth.yml, ingestor.yml, processor.yml, gateway.yml, notification.yml - one workflow per backend
+    service, each path-triggered off exactly the projects listed in that service's own .slnf (plus the
+    shared root files Directory.Build.props/Directory.Packages.props/.editorconfig/stylecop.json, which
+    affect every project's build). Each does: restore -> build <service>.slnf (Release, --no-restore)
+    -> test <service>.slnf (Release, --no-build) -> docker build -f <service Dockerfile> path -t
+    weakapphandler-<service>:ci . (build context is repo root, matching each Dockerfile's own comment).
+    "lint/статический анализ" is NOT a separate step - Directory.Build.props already sets
+    TreatWarningsAsErrors=true + StyleCop.Analyzers + AnalysisMode=Recommended globally, so the build
+    step itself is the analyzer gate (a warning already fails it). Deliberately did NOT add a
+    `dotnet format --verify-no-changes` step: tried it first (severity info) and it surfaced ~40
+    pre-existing IDE00xx/SA1623 violations across Notification.RuleEngine.Tests/M2.IntegrationTests
+    that the current build does NOT treat as errors (they're IDE-suggestion severity in .editorconfig,
+    not elevated by EnforceCodeStyleInBuild) - adding that step would have immediately broken CI on
+    code this task never touched. Left as a possible future follow-up, not silently added.
+  - frontend.yml - path-triggered on frontend/** and the Gateway's committed schema.graphql (codegen
+    reads that file locally, not a live server, confirmed via codegen.ts - so no backend services need
+    to be running for this workflow to succeed). Runs npm ci -> npm run lint (ESLint) -> npm run build
+    (this already runs codegen then tsc -b + vite build, i.e. the TypeScript check) -> npm test
+    (vitest run, already non-watch) -> a conditional Playwright step that checks for
+    playwright.config.ts/.js and `npm run test:e2e --if-present` before running, printing a skip
+    message otherwise - TASK-050 (still pending) is what will actually add Playwright, so this way
+    frontend.yml won't need editing again once that lands.
+  - pr-title.yml - validates PR title against a Conventional Commits regex
+    (feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert, optional (scope), optional !, then
+    ": ..."). Deliberately hand-rolled as an inline bash/grep step instead of pulling in a third-party
+    action (e.g. amannn/action-semantic-pull-request) - no external supply-chain dependency needed for
+    a one-line regex check, and no secrets/permissions required beyond reading the PR title from the
+    event payload.
+
+Every workflow uses actions/checkout@v4, actions/setup-dotnet@v4 (dotnet-version 10.0.x) or
+actions/setup-node@v4 (node 22, matching frontend/Dockerfile's node:22-alpine), and a
+concurrency group keyed on the workflow name + ref with cancel-in-progress, so superseded pushes to
+the same PR/branch don't pile up runners.
+
+Verified locally before committing (everything these workflows will actually run, run here first):
+  - `dotnet build WeakAppHandler.sln --configuration Release`: 0 warnings, 0 errors.
+  - `dotnet test WeakAppHandler.sln --configuration Release --no-build`: all 10 test projects green,
+    274/274 tests passing (same total TASK-047's hotfix last reported - nothing regressed).
+  - `docker build -f src/Auth/WeakAppHandler.Auth/Dockerfile -t weakapphandler-auth:ci-check .`:
+    succeeded against the real local Docker daemon (25.0.3) - confirms the exact command each backend
+    workflow's last step runs is valid; image removed afterward.
+  - `npm --prefix frontend run lint`: clean. `npm --prefix frontend run build`: succeeds (codegen +
+    tsc -b + vite build; the one console line that looks like a PowerShell NativeCommandError is just
+    Vite's own chunk-size-warning reporter writing to stderr, not a real failure - exit code was 0).
+    `npm --prefix frontend test`: 31 files / 160 tests passing.
+
+BLOCKER - one of three acceptance criteria genuinely cannot be met on this repo right now, confirmed
+against the real GitHub API, not assumed: "защита ветки main с обязательными проверками и запретом
+прямых push" (branch protection). `gh api repos/Mmishaaa/WeakAppHandler/branches/main/protection`
+(both GET and a PUT attempt) returns HTTP 403: "Upgrade to GitHub Pro or make this repository public
+to enable this feature." Same result for the newer rulesets endpoint
+(repos/{owner}/{repo}/rulesets). This repo is private on GitHub's Free plan, and classic branch
+protection + repository rulesets are both gated behind GitHub Pro/Team for private repos - confirmed
+via `gh repo view --json isPrivate` (true) and `viewerPermission` (ADMIN, so this is a plan-tier gate,
+not a missing-permission gate; my `gh auth status` token has repo+workflow scopes, which would be
+sufficient if the plan allowed it). Did NOT work around this by making the repo public or suggesting
+the user upgrade billing - that's a visibility/billing decision for Mikhail to make, not something to
+decide unilaterally from an autonomous task loop.
+
+Per this task's own before_finish rule ("Если задача НЕ доведена до конца: оставь ветку и коммиты как
+есть, НЕ открывай PR, оставь status pending"), status stays "pending" - NOT pushed, NOT PR'd, NOT
+merged. All 7 workflow files are committed on task/task-049-ci-workflows only.
+
+NEXT: whoever picks this back up has two options once Mikhail decides: (1) make the repo public - the
+existing 7 workflow files need zero changes, just run
+`gh api -X PUT repos/Mmishaaa/WeakAppHandler/branches/main/protection` with required_status_checks
+naming these exact check names: "Build, test, and package" (once per workflow - GitHub disambiguates
+by workflow file, so this repeated job name across 5 files is fine, each shows up scoped to its own
+workflow in the PR checks list), "Lint, typecheck, build, and test" (frontend.yml), and "Validate
+Conventional Commits title" (pr-title.yml), plus enforce_admins and required_pull_request_reviews to
+actually block direct pushes; or (2) upgrade to GitHub Pro/Team, same API call afterward. Either way,
+this branch (task/task-049-ci-workflows) should just be merged as-is once branch protection is
+sorted - the workflow content itself is complete and verified, only the repo-settings step is
+missing. TASK-050 (Playwright + demo scenarios) still depends on TASK-049 - once this is genuinely
+"done" (merged), 050 becomes the only remaining pending task, in addition to whatever TASK-048
+(retention job, owned by the peer session) leaves behind.
