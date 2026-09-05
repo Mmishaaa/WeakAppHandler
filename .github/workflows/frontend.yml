@@ -61,14 +61,18 @@ jobs:
         if: steps.filter.outputs.relevant == 'true'
         run: npm test
 
-      # TASK-050 introduces the actual Playwright suite; this step activates itself once that
-      # config/script exists, so this workflow won't need editing again to pick it up.
-      - name: End-to-end tests (Playwright, if configured)
-        if: steps.filter.outputs.relevant == 'true'
+      # TASK-050's Playwright suite (S1-S7) needs the full docker-compose stack (11 services) up
+      # and healthy, not just this job's Node checkout - genuinely running it here would mean
+      # standing up every backend service in CI too, well beyond this workflow's own scope. Gated
+      # on E2E_FRONTEND_URL (a repo/environment variable, unset by default) rather than just the
+      # config file existing, so this stays a deliberate opt-in for whoever wires a real
+      # compose-based E2E workflow later, instead of silently failing every PR the moment
+      # playwright.config.ts exists. Run it locally with `npm run test:e2e --prefix frontend`
+      # against a stack already up via `docker compose up` (see the root README's demo scenarios).
+      - name: End-to-end tests (Playwright, opt-in via E2E_FRONTEND_URL)
+        if: steps.filter.outputs.relevant == 'true' && vars.E2E_FRONTEND_URL != ''
+        env:
+          E2E_FRONTEND_URL: ${{ vars.E2E_FRONTEND_URL }}
         run: |
-          if [ -f "playwright.config.ts" ] || [ -f "playwright.config.js" ]; then
-            npx playwright install --with-deps
-            npm run test:e2e --if-present
-          else
-            echo "No Playwright config present yet (see TASK-050) - skipping e2e tests."
-          fi
+          npx playwright install --with-deps
+          npm run test:e2e --if-present
