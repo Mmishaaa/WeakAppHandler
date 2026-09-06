@@ -1,0 +1,30 @@
+# The single source of truth for line endings: applies to everyone who clones this
+# repository, regardless of their local core.autocrlf. LF in the index and the working tree.
+* text=auto eol=lf
+
+# Windows tooling rewrites these files on its own; LF here either produces a spurious
+# diff on every open or breaks execution outright.
+*.sln text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Anything executed inside a Linux container: a trailing CR breaks the shebang and turns
+# commands into "bash: \r: command not found".
+*.sh       text eol=lf
+Dockerfile text eol=lf
+*.props    text eol=lf
+*.targets  text eol=lf
+
+*.cs text diff=csharp
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.pdf binary
+*.pfx binary
+*.snk binary
