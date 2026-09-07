@@ -16,15 +16,28 @@ sealed class WeakAppOptions : IValidatableObject
     public int PollingIntervalSeconds { get; set; } = 10;
 
     [Range(1, 300)]
-    public int RequestTimeoutSeconds { get; set; } = 5;
+    public int AttemptTimeoutSeconds { get; set; } = 3;
+
+    [Range(1, 600)]
+    public int TotalTimeoutSeconds { get; set; } = 8;
+
+    [Range(0, 10)]
+    public int MaxRetryAttempts { get; set; } = 3;
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (RequestTimeoutSeconds >= PollingIntervalSeconds)
+        if (AttemptTimeoutSeconds >= TotalTimeoutSeconds)
         {
             yield return new ValidationResult(
-                $"{nameof(RequestTimeoutSeconds)} must be smaller than {nameof(PollingIntervalSeconds)}.",
-                [nameof(RequestTimeoutSeconds)]);
+                $"{nameof(AttemptTimeoutSeconds)} must be smaller than {nameof(TotalTimeoutSeconds)}.",
+                [nameof(AttemptTimeoutSeconds)]);
+        }
+
+        if (TotalTimeoutSeconds >= PollingIntervalSeconds)
+        {
+            yield return new ValidationResult(
+                $"{nameof(TotalTimeoutSeconds)} must be smaller than {nameof(PollingIntervalSeconds)}.",
+                [nameof(TotalTimeoutSeconds)]);
         }
     }
 }

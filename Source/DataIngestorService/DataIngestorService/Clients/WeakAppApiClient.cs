@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DataIngestorService.Clients.Results;
 using DataIngestorService.Contracts;
+using Polly.Timeout;
 
 namespace DataIngestorService.Clients;
 
@@ -20,6 +21,10 @@ sealed class WeakAppApiClient(HttpClient httpClient) : IWeakAppApiClient
         {
             using var response = await httpClient.GetAsync(MetersPath, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             return await ClassifyAsync(response, start, cancellationToken);
+        }
+        catch (TimeoutRejectedException)
+        {
+            return Failure(PollOutcome.Timeout, httpStatusCode: null, "The request timed out", start);
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
