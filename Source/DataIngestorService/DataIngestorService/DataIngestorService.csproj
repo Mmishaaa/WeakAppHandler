@@ -7,7 +7,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="MassTransit.RabbitMQ" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../MessageContracts/MessageContracts.csproj" />
         <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     </ItemGroup>
 

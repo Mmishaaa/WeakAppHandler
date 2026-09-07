@@ -3,6 +3,8 @@ using DataIngestorService.Clients.Results;
 using DataIngestorService.Configuration;
 using DataIngestorService.Models;
 using DataIngestorService.Parsing;
+using MassTransit;
+using MessageContracts;
 using Microsoft.Extensions.Options;
 
 namespace DataIngestorService.Workers;
@@ -76,7 +78,30 @@ sealed partial class MeterIngestionWorker(
         {
             LogReading(reading);
         }
+
+        var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+        await PublishAsync(publishEndpoint, readings, cancellationToken);
     }
+
+    private async Task PublishAsync(
+        IPublishEndpoint publishEndpoint,
+        IReadOnlyList<MeterReadingModel> readings,
+        CancellationToken cancellationToken)
+    {
+        var batchId = NewId.NextGuid();
+
+        var message = new MeterReadingsCaptured(
+            batchId,
+            DateTimeOffset.UtcNow,
+            [.. readings.Select(ToDto)]);
+
+        await publishEndpoint.Publish(message, cancellationToken);
+
+        LogBatchPublished(logger, batchId, message.Readings.Count);
+    }
+
+    private static MeterReadingDto ToDto(MeterReadingModel reading) =>
+        new(reading.Location, reading.MeterType, reading.MetricCode, reading.Numeric, reading.Flag);
 
     private void LogReading(MeterReadingModel reading)
     {

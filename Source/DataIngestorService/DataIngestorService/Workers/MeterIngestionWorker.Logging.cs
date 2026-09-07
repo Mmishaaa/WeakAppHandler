@@ -56,6 +56,12 @@ sealed partial class MeterIngestionWorker
         bool value);
 
     [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Information,
+        Message = "Published batch {BatchId} with {ReadingCount} readings")]
+    private static partial void LogBatchPublished(ILogger logger, Guid batchId, int readingCount);
+
+    [LoggerMessage(
         EventId = 7,
         Level = LogLevel.Error,
         Message = "An unhandled exception occurred during WeakApp polling")]

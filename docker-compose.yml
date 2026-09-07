@@ -16,5 +16,31 @@ services:
       retries: 5
       start_period: 10s
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      # 5672 is AMQP for the services, 15672 the management UI for us.
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      # Named volume, so queues and their contents survive `docker compose down` without -v.
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # The broker takes a while to come up; without this the first probes would burn the retries.
+      start_period: 30s
+
+volumes:
+  rabbitmq-data:
+
 networks:
   backend:

@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="../DataProcessorService/DataProcessorService.csproj" />
+  <Project Path="../MessageContracts/MessageContracts.csproj" />
   <Project Path="DataIngestorService/DataIngestorService.csproj" />
 </Solution>

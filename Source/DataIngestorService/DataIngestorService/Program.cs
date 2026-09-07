@@ -5,6 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddWeakAppClient(builder.Configuration);
+builder.Services.AddMessaging(builder.Configuration);
 builder.Services.AddHostedService<MeterIngestionWorker>();
 
 var app = builder.Build();
