@@ -33,7 +33,7 @@ sealed partial class MeterIngestionWorker(
         }
         catch (OperationCanceledException)
         {
-            // Expected on shutdown: the host cancelled stoppingToken.
+
         }
 
         LogPollingStopped(logger);
@@ -47,7 +47,7 @@ sealed partial class MeterIngestionWorker(
         }
         catch (OperationCanceledException)
         {
-            // Cancellation is not a failure; let it reach the loop so shutdown stays prompt.
+
             throw;
         }
         catch (Exception exception)

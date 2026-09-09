@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace DataProcessorService.Configuration;
+namespace DataProcessorService.API.Configuration;
 
 sealed class RabbitMqOptions
 {

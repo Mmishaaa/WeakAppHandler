@@ -1,22 +1,31 @@
-using DataProcessorService.Configuration;
-using DataProcessorService.Consumers;
+using DataProcessorService.API.Configuration;
+using DataProcessorService.API.Consumers;
+using DataProcessorService.BLL.Extensions;
 using MassTransit;
 using Microsoft.Extensions.Options;
+using Shared.Extensions;
 
-namespace DataProcessorService.Extensions;
+namespace DataProcessorService.API.Extensions;
 
 static class ServiceCollectionExtensions
 {
     private const int RetryCount = 3;
+
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
-    public static IServiceCollection AddMessaging(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration configuration)
     {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configuration);
+        services.AddOpenApi();
+        services.AddGlobalExceptionHandling();
+        services.AddBll(configuration);
 
+        AddMessaging(services, configuration);
+
+        return services;
+    }
+
+    private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
+    {
         services.AddOptions<RabbitMqOptions>()
             .Bind(configuration.GetSection(RabbitMqOptions.SectionName))
             .ValidateDataAnnotations()
@@ -35,12 +44,11 @@ static class ServiceCollectionExtensions
                     host.Username(options.Username);
                     host.Password(options.Password);
                 });
-                
+
                 rabbit.UseMessageRetry(retry => retry.Interval(RetryCount, RetryInterval));
+
                 rabbit.ConfigureEndpoints(context);
             });
         });
-
-        return services;
     }
 }

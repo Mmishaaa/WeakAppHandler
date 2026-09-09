@@ -12,9 +12,6 @@ static class WeakAppResiliencePipeline
 
     public static void Configure(ResiliencePipelineBuilder<HttpResponseMessage> builder, WeakAppOptions options)
     {
-        ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(options);
-
         builder.AddTimeout(TimeSpan.FromSeconds(options.TotalTimeoutSeconds));
 
         builder.AddRetry(new HttpRetryStrategyOptions

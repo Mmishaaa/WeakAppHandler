@@ -19,8 +19,6 @@ static class MeterPayloadParser
 
     public static IReadOnlyList<MeterReadingModel> ParseAll(IReadOnlyList<WeakAppMeterDto> meters)
     {
-        ArgumentNullException.ThrowIfNull(meters);
-
         var readings = new List<MeterReadingModel>(meters.Count);
 
         foreach (var meter in meters)
@@ -33,8 +31,6 @@ static class MeterPayloadParser
 
     private static void AddReadings(WeakAppMeterDto meter, List<MeterReadingModel> readings)
     {
-        ArgumentNullException.ThrowIfNull(meter);
-
         if (meter.Payload.ValueKind != JsonValueKind.Object)
         {
             return;

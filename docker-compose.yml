@@ -39,7 +39,30 @@ services:
       # The broker takes a while to come up; without this the first probes would burn the retries.
       start_period: 30s
 
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-weakapphandler}
+      POSTGRES_USER: ${POSTGRES_USER:-processor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-processor_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # -U and -d are not optional here: without them pg_isready checks the "postgres" database as
+      # the "root" user and reports ready before ours exists.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-processor} -d ${POSTGRES_DB:-weakapphandler}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
+  postgres-data:
   rabbitmq-data:
 
 networks:
