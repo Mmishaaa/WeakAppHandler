@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="HotChocolate.AspNetCore" />
+        <PackageReference Include="HotChocolate.AspNetCore.CommandLine" />
+        <PackageReference Include="HotChocolate.Data.EntityFramework" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../Shared/Shared.csproj" />
+        <ProjectReference Include="../GraphQlGateway.BLL/GraphQlGateway.BLL.csproj" />
+        <ProjectReference Include="../GraphQlGateway.DAL/GraphQlGateway.DAL.csproj" />
+    </ItemGroup>
+
+</Project>

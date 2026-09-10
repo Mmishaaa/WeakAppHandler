@@ -50,8 +50,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-weakapphandler}
       POSTGRES_USER: ${POSTGRES_USER:-processor}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-processor_password}
+      # Consumed by the init script, not by the image itself.
+      GATEWAY_DB_USER: ${GATEWAY_DB_USER:-gateway}
+      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:-gateway_password}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Scripts here run once, and only while the data directory is still empty.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # -U and -d are not optional here: without them pg_isready checks the "postgres" database as
       # the "root" user and reports ready before ours exists.
@@ -61,9 +66,95 @@ services:
       retries: 5
       start_period: 15s
 
+  pgadmin:
+    image: dpage/pgadmin4:9.17
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      # pgAdmin validates this address and rejects reserved TLDs such as .local.
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@weakapphandler.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      # Local tool, one user: skip the extra master-password prompt.
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      # Pre-registers the connection. Imported once, on an empty pgadmin volume.
+      - ./db/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestor:
+    build:
+      # Root context: the build needs Directory.*.props and the Shared project.
+      context: .
+      dockerfile: Source/DataIngestorService/DataIngestorService/Dockerfile
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${INGESTOR_PORT:-5227}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      WeakApp__BaseUrl: http://weakapp:8080
+      WeakApp__ApiKey: ${WEAKAPP_API_KEY:-supersecret}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+    depends_on:
+      weakapp:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  processor:
+    build:
+      context: .
+      dockerfile: Source/DataProcessorService/DataProcessorService.API/Dockerfile
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${PROCESSOR_PORT:-5242}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Database: Host=postgres;Port=5432;Database=${POSTGRES_DB:-weakapphandler};Username=${POSTGRES_USER:-processor};Password=${POSTGRES_PASSWORD:-processor_password}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Source/GraphQlGateway/GraphQlGateway.API/Dockerfile
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${GATEWAY_PORT:-5243}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      # Read-only role; the schema belongs to the processor.
+      ConnectionStrings__Database: Host=postgres;Port=5432;Database=${POSTGRES_DB:-weakapphandler};Username=${GATEWAY_DB_USER:-gateway};Password=${GATEWAY_DB_PASSWORD:-gateway_password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Not a hard requirement, but the gateway has nothing to serve until the schema exists.
+      processor:
+        condition: service_started
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  pgadmin-data:
 
 networks:
   backend:

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="GraphQlGateway.API/GraphQlGateway.API.csproj" />
+  <Project Path="GraphQlGateway.BLL/GraphQlGateway.BLL.csproj" />
+  <Project Path="GraphQlGateway.DAL/GraphQlGateway.DAL.csproj" />
+  <Project Path="../Shared/Shared.csproj" />
+</Solution>

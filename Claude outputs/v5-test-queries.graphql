@@ -1,0 +1,630 @@
+# Smoke-test suite for the GraphQL gateway.
+#
+# Open http://localhost:5243/graphql, paste this whole document into Nitro and run the
+# operations one by one (Nitro shows a picker when a document holds several operations).
+#
+# The sample values below match what the ingestor produces:
+#   locations:    Bedroom, Corridor, Garage, Kitchen, Living Room, Office
+#   meter types:  air_quality, energy, motion
+#   metric codes: co2, humidity, pm25 (air_quality), energy (energy),
+#                 motion_detected (motion)
+#
+# motion_detected carries a boolean, not a number, so it never shows up in
+# readingStats or locationStats - both aggregate over the numeric value only.
+#
+# Operations taking $meterId need the id of a meter that actually owns the metric
+# code in the same query. Corridor / air_quality works for the humidity examples;
+# take its id from MetersAll.
+
+# ---------------------------------------------------------------------------
+# 1. Every root field at once. If this one passes, the schema is wired up.
+# ---------------------------------------------------------------------------
+query Everything {
+  meters {
+    id
+    location
+    meterType
+    firstSeenAt
+    lastSeenAt
+  }
+  readings(first: 3) {
+    totalCount
+    nodes {
+      id
+      metricCode
+      observedAt
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+  latestReadings {
+    meterId
+    location
+    metricCode
+    observedAt
+    numeric
+    flag
+  }
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: HOUR
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+    }
+  ) {
+    bucketStart
+    count
+    min
+    max
+    average
+  }
+  locationStats(from: "2026-09-01T00:00:00Z", to: "2026-10-01T00:00:00Z") {
+    location
+    metricCode
+    count
+    min
+    max
+    average
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 2. meters - projection, filtering, sorting
+# ---------------------------------------------------------------------------
+
+query MetersAll {
+  meters {
+    id
+    location
+    meterType
+    firstSeenAt
+    lastSeenAt
+  }
+}
+
+# Only the three fields bound in MeterFilterType are filterable.
+query MetersFilteredByLocation {
+  meters(where: { location: { eq: "Corridor" } }) {
+    id
+    location
+    meterType
+  }
+}
+
+query MetersFilteredByContains {
+  meters(where: { location: { contains: "Room" } }) {
+    id
+    location
+  }
+}
+
+query MetersFilteredByDate {
+  meters(where: { lastSeenAt: { gt: "2026-09-01T00:00:00Z" } }) {
+    id
+    location
+    lastSeenAt
+  }
+}
+
+query MetersFilteredCombined {
+  meters(
+    where: {
+      and: [
+        { meterType: { eq: "air_quality" } }
+        { lastSeenAt: { gte: "2026-09-01T00:00:00Z" } }
+      ]
+    }
+  ) {
+    id
+    location
+    meterType
+    lastSeenAt
+  }
+}
+
+query MetersFilteredOr {
+  meters(
+    where: {
+      or: [{ meterType: { eq: "air_quality" } }, { meterType: { eq: "motion" } }]
+    }
+  ) {
+    id
+    meterType
+  }
+}
+
+query MetersSorted {
+  meters(order: [{ location: ASC }, { meterType: DESC }]) {
+    location
+    meterType
+  }
+}
+
+query MetersSortedByLastSeen {
+  meters(order: [{ lastSeenAt: DESC }]) {
+    location
+    lastSeenAt
+  }
+}
+
+query MetersFilteredAndSorted {
+  meters(
+    where: { location: { contains: "Room" } }
+    order: [{ lastSeenAt: DESC }]
+  ) {
+    id
+    location
+    lastSeenAt
+  }
+}
+
+# A filter that matches nothing - must return an empty list, not an error.
+query MetersEmptyResult {
+  meters(where: { location: { eq: "__nope__" } }) {
+    id
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 3. readings - keyset pagination
+# ---------------------------------------------------------------------------
+
+# No arguments at all: DefaultPageSize (50) applies.
+query ReadingsDefaultPage {
+  readings {
+    totalCount
+    nodes {
+      id
+      observedAt
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+# Grab the endCursor from here and feed it to ReadingsAfter.
+query ReadingsFirstPage {
+  readings(first: 5) {
+    totalCount
+    edges {
+      cursor
+      node {
+        id
+        meterId
+        location
+        meterType
+        metricCode
+        observedAt
+        numeric
+        flag
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+  }
+}
+
+# $cursor = the endCursor returned by ReadingsFirstPage.
+query ReadingsAfter($cursor: String!) {
+  readings(first: 5, after: $cursor) {
+    edges {
+      cursor
+      node {
+        id
+        observedAt
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+  }
+}
+
+# Backward paging. `last` and `first` cannot be combined under the keyset provider.
+query ReadingsLastPage {
+  readings(last: 5) {
+    edges {
+      cursor
+      node {
+        id
+        observedAt
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+  }
+}
+
+# $cursor = the startCursor returned by ReadingsFirstPage.
+query ReadingsBefore($cursor: String!) {
+  readings(last: 5, before: $cursor) {
+    edges {
+      cursor
+      node {
+        id
+        observedAt
+      }
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+    }
+  }
+}
+
+# nodes instead of edges - the flattened shortcut.
+query ReadingsNodesOnly {
+  readings(first: 5) {
+    nodes {
+      id
+      metricCode
+      observedAt
+      numeric
+    }
+  }
+}
+
+# totalCount alone: the handler must skip fetching edges entirely.
+query ReadingsCountOnly {
+  readings {
+    totalCount
+  }
+}
+
+# MaxPageSize is 200 - this must fail with a paging error, not return 500 rows.
+query ReadingsOverMaxPageSize {
+  readings(first: 500) {
+    nodes {
+      id
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 4. readings - the custom filter argument
+# ---------------------------------------------------------------------------
+
+query ReadingsByMetricCode {
+  readings(first: 10, filter: { metricCode: "humidity" }) {
+    totalCount
+    nodes {
+      metricCode
+      observedAt
+      numeric
+    }
+  }
+}
+
+query ReadingsByLocation {
+  readings(first: 10, filter: { location: "Corridor" }) {
+    totalCount
+    nodes {
+      location
+      metricCode
+      observedAt
+    }
+  }
+}
+
+query ReadingsByMeterType {
+  readings(first: 10, filter: { meterType: "air_quality" }) {
+    nodes {
+      meterType
+      metricCode
+      numeric
+    }
+  }
+}
+
+query ReadingsByTimeRange {
+  readings(
+    first: 10
+    filter: { from: "2026-09-01T00:00:00Z", to: "2026-10-01T00:00:00Z" }
+  ) {
+    totalCount
+    nodes {
+      observedAt
+    }
+  }
+}
+
+# $meterId = an id from MetersAll.
+query ReadingsByMeterId($meterId: UUID!) {
+  readings(first: 10, filter: { meterId: $meterId }) {
+    totalCount
+    nodes {
+      meterId
+      metricCode
+      observedAt
+    }
+  }
+}
+
+# Every filter field at once, plus paging on top of it.
+query ReadingsFilteredAndPaged($meterId: UUID!) {
+  readings(
+    first: 5
+    filter: {
+      meterId: $meterId
+      location: "Corridor"
+      meterType: "air_quality"
+      metricCode: "humidity"
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+    }
+  ) {
+    totalCount
+    edges {
+      cursor
+      node {
+        id
+        observedAt
+        numeric
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+# Explicit null filter - must behave exactly like ReadingsFirstPage.
+query ReadingsNullFilter {
+  readings(first: 5, filter: null) {
+    totalCount
+    nodes {
+      id
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 5. latestReadings - one row per meter and metric
+# ---------------------------------------------------------------------------
+
+query LatestReadingsAll {
+  latestReadings {
+    id
+    meterId
+    location
+    meterType
+    metricCode
+    observedAt
+    numeric
+    flag
+  }
+}
+
+query LatestReadingsByLocation {
+  latestReadings(location: "Corridor") {
+    location
+    metricCode
+    observedAt
+    numeric
+  }
+}
+
+query LatestReadingsByMeterType {
+  latestReadings(meterType: "air_quality") {
+    meterType
+    metricCode
+    observedAt
+  }
+}
+
+query LatestReadingsBoth {
+  latestReadings(location: "Corridor", meterType: "air_quality") {
+    location
+    meterType
+    metricCode
+    observedAt
+    numeric
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 6. readingStats - time-bucketed aggregation
+# ---------------------------------------------------------------------------
+
+query ReadingStatsHourly {
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: HOUR
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+    }
+  ) {
+    bucketStart
+    count
+    min
+    max
+    average
+  }
+}
+
+query ReadingStatsDaily {
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: DAY
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+    }
+  ) {
+    bucketStart
+    count
+    min
+    max
+    average
+  }
+}
+
+query ReadingStatsScopedToMeter($meterId: UUID!) {
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: DAY
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+      meterId: $meterId
+    }
+  ) {
+    bucketStart
+    count
+    average
+  }
+}
+
+query ReadingStatsScopedToLocation {
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: DAY
+      from: "2026-09-01T00:00:00Z"
+      to: "2026-10-01T00:00:00Z"
+      location: "Corridor"
+    }
+  ) {
+    bucketStart
+    count
+    min
+    max
+    average
+  }
+}
+
+# An empty window - must return an empty list, not an error.
+query ReadingStatsEmptyWindow {
+  readingStats(
+    input: {
+      metricCode: "humidity"
+      bucket: HOUR
+      from: "2000-01-01T00:00:00Z"
+      to: "2000-01-02T00:00:00Z"
+    }
+  ) {
+    bucketStart
+    count
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 7. locationStats - aggregation grouped by location and metric
+# ---------------------------------------------------------------------------
+
+query LocationStatsAll {
+  locationStats(from: "2026-09-01T00:00:00Z", to: "2026-10-01T00:00:00Z") {
+    location
+    metricCode
+    count
+    min
+    max
+    average
+  }
+}
+
+query LocationStatsByMetric {
+  locationStats(
+    from: "2026-09-01T00:00:00Z"
+    to: "2026-10-01T00:00:00Z"
+    metricCode: "humidity"
+  ) {
+    location
+    metricCode
+    count
+    average
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 8. Negative checks - each of these must produce a GraphQL error, not a 500
+# ---------------------------------------------------------------------------
+
+# `first` and `last` together are rejected by the keyset paging provider.
+query PagingFirstAndLast {
+  readings(first: 5, last: 5) {
+    nodes {
+      id
+    }
+  }
+}
+
+# A malformed cursor must come back as a handled error.
+query PagingBadCursor {
+  readings(first: 5, after: "not-a-cursor") {
+    nodes {
+      id
+    }
+  }
+}
+
+# A negative page size must be rejected by the paging validation middleware.
+query PagingNegativeFirst {
+  readings(first: -1) {
+    nodes {
+      id
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 9. Introspection - confirms the connection type and the paging arguments exist
+# ---------------------------------------------------------------------------
+
+query IntrospectReadingsField {
+  __type(name: "Query") {
+    fields {
+      name
+      args {
+        name
+        type {
+          name
+          kind
+          ofType {
+            name
+            kind
+          }
+        }
+      }
+      type {
+        name
+        kind
+        ofType {
+          name
+          kind
+        }
+      }
+    }
+  }
+}
+
+query IntrospectConnection {
+  __type(name: "ReadingsConnection") {
+    name
+    fields {
+      name
+      type {
+        name
+        kind
+      }
+    }
+  }
+}

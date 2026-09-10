@@ -22,7 +22,7 @@ namespace DataProcessorService.DAL.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("DataProcessorService.DAL.Entities.DbMeter", b =>
+            modelBuilder.Entity("Shared.Entities.DbMeter", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -52,7 +52,7 @@ namespace DataProcessorService.DAL.Migrations
                     b.ToTable("Meters");
                 });
 
-            modelBuilder.Entity("DataProcessorService.DAL.Entities.DbProcessedMessage", b =>
+            modelBuilder.Entity("Shared.Entities.DbProcessedMessage", b =>
                 {
                     b.Property<Guid>("MessageId")
                         .HasColumnType("uuid");
@@ -65,7 +65,7 @@ namespace DataProcessorService.DAL.Migrations
                     b.ToTable("ProcessedMessages");
                 });
 
-            modelBuilder.Entity("DataProcessorService.DAL.Entities.DbReading", b =>
+            modelBuilder.Entity("Shared.Entities.DbReading", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -99,9 +99,9 @@ namespace DataProcessorService.DAL.Migrations
                     b.ToTable("Readings");
                 });
 
-            modelBuilder.Entity("DataProcessorService.DAL.Entities.DbReading", b =>
+            modelBuilder.Entity("Shared.Entities.DbReading", b =>
                 {
-                    b.HasOne("DataProcessorService.DAL.Entities.DbMeter", "Meter")
+                    b.HasOne("Shared.Entities.DbMeter", "Meter")
                         .WithMany()
                         .HasForeignKey("MeterId")
                         .OnDelete(DeleteBehavior.Cascade)
