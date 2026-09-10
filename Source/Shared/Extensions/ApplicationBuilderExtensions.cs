@@ -4,11 +4,14 @@ namespace Shared.Extensions;
 
 public static class ApplicationBuilderExtensions
 {
-    public static IApplicationBuilder UseGlobalExceptionHandling(this IApplicationBuilder app)
+    extension(IApplicationBuilder app)
     {
-        app.UseExceptionHandler();
-        app.UseStatusCodePages();
+        public IApplicationBuilder UseGlobalExceptionHandling()
+        {
+            app.UseExceptionHandler();
+            app.UseStatusCodePages();
 
-        return app;
+            return app;
+        }
     }
 }

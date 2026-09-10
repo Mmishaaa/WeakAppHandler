@@ -1,4 +1,4 @@
-using DataProcessorService.DAL.Entities;
+using Shared.Entities;
 
 namespace DataProcessorService.DAL.Repositories;
 

@@ -1,5 +1,5 @@
-using DataProcessorService.DAL.Entities;
 using Microsoft.EntityFrameworkCore;
+using Shared.Entities;
 
 namespace DataProcessorService.DAL;
 

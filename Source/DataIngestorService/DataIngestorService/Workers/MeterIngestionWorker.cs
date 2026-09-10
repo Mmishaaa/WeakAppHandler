@@ -4,8 +4,8 @@ using DataIngestorService.Configuration;
 using DataIngestorService.Models;
 using DataIngestorService.Parsing;
 using MassTransit;
-using MessageContracts;
 using Microsoft.Extensions.Options;
+using Shared.MessageContracts;
 
 namespace DataIngestorService.Workers;
 

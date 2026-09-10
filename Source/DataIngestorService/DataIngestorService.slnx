@@ -1,5 +1,4 @@
 <Solution>
-  <Project Path="../MessageContracts/MessageContracts.csproj" />
   <Project Path="../Shared/Shared.csproj" />
   <Project Path="DataIngestorService/DataIngestorService.csproj" />
 </Solution>

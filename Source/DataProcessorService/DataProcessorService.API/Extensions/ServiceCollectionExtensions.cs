@@ -13,15 +13,18 @@ static class ServiceCollectionExtensions
 
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
-    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration configuration)
+    extension(IServiceCollection services)
     {
-        services.AddOpenApi();
-        services.AddGlobalExceptionHandling();
-        services.AddBll(configuration);
+        public IServiceCollection AddApi(IConfiguration configuration)
+        {
+            services.AddOpenApi();
+            services.AddGlobalExceptionHandling();
+            services.AddBll(configuration);
 
-        AddMessaging(services, configuration);
+            AddMessaging(services, configuration);
 
-        return services;
+            return services;
+        }
     }
 
     private static void AddMessaging(IServiceCollection services, IConfiguration configuration)

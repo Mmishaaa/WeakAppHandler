@@ -7,20 +7,23 @@ namespace Shared.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddUnitOfWork<TDbContext>(this IServiceCollection services)
-        where TDbContext : DbContext
+    extension(IServiceCollection services)
     {
-        services.AddScoped<DbContext>(provider => provider.GetRequiredService<TDbContext>());
-        services.AddScoped<IUnitOfWorkService, UnitOfWorkService>();
+        public IServiceCollection AddUnitOfWork<TDbContext>()
+            where TDbContext : DbContext
+        {
+            services.AddScoped<DbContext>(provider => provider.GetRequiredService<TDbContext>());
+            services.AddScoped<IUnitOfWorkService, UnitOfWorkService>();
 
-        return services;
-    }
+            return services;
+        }
 
-    public static IServiceCollection AddGlobalExceptionHandling(this IServiceCollection services)
-    {
-        services.AddProblemDetails();
-        services.AddExceptionHandler<GlobalExceptionHandler>();
+        public IServiceCollection AddGlobalExceptionHandling()
+        {
+            services.AddProblemDetails();
+            services.AddExceptionHandler<GlobalExceptionHandler>();
 
-        return services;
+            return services;
+        }
     }
 }

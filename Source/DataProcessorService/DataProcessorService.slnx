@@ -2,6 +2,5 @@
   <Project Path="DataProcessorService.API/DataProcessorService.API.csproj" />
   <Project Path="DataProcessorService.BLL/DataProcessorService.BLL.csproj" />
   <Project Path="DataProcessorService.DAL/DataProcessorService.DAL.csproj" />
-  <Project Path="../MessageContracts/MessageContracts.csproj" />
   <Project Path="../Shared/Shared.csproj" />
 </Solution>

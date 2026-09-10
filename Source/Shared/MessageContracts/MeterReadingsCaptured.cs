@@ -1,4 +1,4 @@
-namespace MessageContracts;
+namespace Shared.MessageContracts;
 
 public sealed record MeterReadingsCaptured(
     Guid BatchId,

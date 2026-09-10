@@ -7,12 +7,15 @@ namespace DataProcessorService.BLL.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddBll(this IServiceCollection services, IConfiguration configuration)
+    extension(IServiceCollection services)
     {
-        services.AddDal(configuration);
+        public IServiceCollection AddBll(IConfiguration configuration)
+        {
+            services.AddDal(configuration);
 
-        services.AddScoped<IReadingBatchService, ReadingBatchService>();
+            services.AddScoped<IReadingBatchService, ReadingBatchService>();
 
-        return services;
+            return services;
+        }
     }
 }

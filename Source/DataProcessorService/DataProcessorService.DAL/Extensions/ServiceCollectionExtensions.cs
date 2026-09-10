@@ -8,17 +8,20 @@ namespace DataProcessorService.DAL.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddDal(this IServiceCollection services, IConfiguration configuration)
+    extension(IServiceCollection services)
     {
-        services.AddDbContext<ProcessorDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("Database")));
+        public IServiceCollection AddDal(IConfiguration configuration)
+        {
+            services.AddDbContext<ProcessorDbContext>(options =>
+                options.UseNpgsql(configuration.GetConnectionString("Database")));
 
-        services.AddUnitOfWork<ProcessorDbContext>();
+            services.AddUnitOfWork<ProcessorDbContext>();
 
-        services.AddScoped<IMeterRepository, MeterRepository>();
-        services.AddScoped<IReadingRepository, ReadingRepository>();
-        services.AddScoped<IProcessedMessageRepository, ProcessedMessageRepository>();
+            services.AddScoped<IMeterRepository, MeterRepository>();
+            services.AddScoped<IReadingRepository, ReadingRepository>();
+            services.AddScoped<IProcessedMessageRepository, ProcessedMessageRepository>();
 
-        return services;
+            return services;
+        }
     }
 }

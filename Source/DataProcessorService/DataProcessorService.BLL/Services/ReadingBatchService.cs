@@ -1,7 +1,7 @@
 using DataProcessorService.BLL.Models;
 using DataProcessorService.BLL.Results;
-using DataProcessorService.DAL.Entities;
 using DataProcessorService.DAL.Repositories;
+using Shared.Entities;
 using Shared.Results;
 using Shared.UnitOfWork;
 

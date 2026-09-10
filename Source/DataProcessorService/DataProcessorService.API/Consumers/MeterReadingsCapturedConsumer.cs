@@ -2,7 +2,7 @@ using DataProcessorService.BLL.Models;
 using DataProcessorService.BLL.Results;
 using DataProcessorService.BLL.Services;
 using MassTransit;
-using MessageContracts;
+using Shared.MessageContracts;
 
 namespace DataProcessorService.API.Consumers;
 

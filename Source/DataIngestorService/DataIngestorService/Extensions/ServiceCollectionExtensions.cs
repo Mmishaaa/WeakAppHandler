@@ -12,17 +12,20 @@ static class ServiceCollectionExtensions
     private const string ApiKeyHeaderName = "X-Api-Key";
     private const string ResiliencePipelineName = "weakapp";
 
-    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration configuration)
+    extension(IServiceCollection services)
     {
-        services.AddOpenApi();
-        services.AddGlobalExceptionHandling();
+        public IServiceCollection AddApi(IConfiguration configuration)
+        {
+            services.AddOpenApi();
+            services.AddGlobalExceptionHandling();
 
-        AddWeakAppClient(services, configuration);
-        AddMessaging(services, configuration);
+            AddWeakAppClient(services, configuration);
+            AddMessaging(services, configuration);
 
-        services.AddHostedService<MeterIngestionWorker>();
+            services.AddHostedService<MeterIngestionWorker>();
 
-        return services;
+            return services;
+        }
     }
 
     private static void AddWeakAppClient(IServiceCollection services, IConfiguration configuration)
