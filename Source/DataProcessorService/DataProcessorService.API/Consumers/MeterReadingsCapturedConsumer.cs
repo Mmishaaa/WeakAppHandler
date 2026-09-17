@@ -27,13 +27,17 @@ sealed partial class MeterReadingsCapturedConsumer(
             return;
         }
 
-        if (result.Value == BatchWriteResult.Duplicate)
+        var write = result.Value;
+
+        if (write.Outcome == BatchWriteResult.Duplicate)
         {
             LogBatchDuplicate(logger, message.BatchId, messageId);
             return;
         }
 
-        LogBatchStored(logger, message.BatchId, message.Readings.Count);
+        await context.Publish(ToStoredEvent(message.BatchId, write), context.CancellationToken);
+
+        LogBatchStored(logger, message.BatchId, write.Readings.Count);
     }
 
     private static MeterReadingsBatchModel ToBatchModel(Guid messageId, MeterReadingsCaptured message) =>
@@ -45,6 +49,20 @@ sealed partial class MeterReadingsCapturedConsumer(
                 reading.Location,
                 reading.MeterType,
                 reading.MetricCode,
+                reading.Numeric,
+                reading.Flag))]);
+
+    private static MeterReadingsStored ToStoredEvent(Guid batchId, BatchWriteModel write) =>
+        new(
+            batchId,
+            DateTimeOffset.UtcNow,
+            [.. write.Readings.Select(reading => new StoredMeterReadingDto(
+                reading.Id,
+                reading.MeterId,
+                reading.Location,
+                reading.MeterType,
+                reading.MetricCode,
+                reading.ObservedAt,
                 reading.Numeric,
                 reading.Flag))]);
 

@@ -7,7 +7,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-That brings up everything: the third-party API, RabbitMQ, PostgreSQL and all three services.
+That brings up everything: the third-party API, RabbitMQ, PostgreSQL, pgAdmin and all four services.
 `docker compose ps` shows the state of each; the first build takes a few minutes.
 
 If a PostgreSQL volume is left over from an earlier run, wipe it first:
@@ -26,13 +26,15 @@ for the gateway.
 | WeakApp | http://localhost:8080/meters |
 | RabbitMQ management UI | http://localhost:15672 (guest/guest) |
 | PostgreSQL | localhost:5432 |
+| pgAdmin | http://localhost:5050 |
 | Data Ingestor | http://localhost:5227 |
 | Data Processor | http://localhost:5242 |
 | GraphQL Gateway / Nitro IDE | http://localhost:5243/graphql |
+| Notification Service / test client | http://localhost:5244 |
 
 Startup order is handled by health checks: the ingestor waits for WeakApp and the broker, the
-processor for the broker and the database. The processor applies the EF migrations when it
-starts, so the schema appears on its own.
+processor for the broker and the database, the notification service for the broker. The
+processor applies the EF migrations when it starts, so the schema appears on its own.
 
 `Cannot load library libgssapi_krb5.so.2` in a service log is noise, not a failure: Npgsql
 probes for Kerberos, does not find it in the runtime image, and falls back to password
@@ -123,3 +125,76 @@ Or directly:
 ```bash
 dotnet run --project Source/GraphQlGateway/GraphQlGateway.API --no-launch-profile -- schema export --output Source/GraphQlGateway/schema.graphql
 ```
+
+## Notification Service
+
+Pushes readings to browsers over SignalR as soon as they are in the database.
+
+| What | Where |
+|------|-------|
+| Hub | `ws://localhost:5244/hubs/readings` |
+| Test client | `http://localhost:5244` in a browser |
+
+The chain is `ingestor -> MeterReadingsCaptured -> processor -> MeterReadingsStored ->
+notifications`. The processor writes the readings and the outgoing event in one transaction, so
+a client is never told about a reading that is not yet queryable through GraphQL, and no reading
+is stored without its notification.
+
+### Transactional outbox
+
+The processor uses the MassTransit Entity Framework outbox, so `MeterReadingsStored` is not sent
+to the broker from inside the consumer. It is written to `OutboxMessage` in the same transaction
+as the readings, and delivered once that transaction commits. If the process dies in between,
+the redelivered `MeterReadingsCaptured` is recognised by `InboxState` and the pending outbox
+messages are delivered instead of the consumer running twice.
+
+That means three tables belong to MassTransit rather than to the domain — `InboxState`,
+`OutboxState` and `OutboxMessage`. They are the reason `ProcessorDbContext` has an
+`OnModelCreating` again: their mapping ships as fluent configuration and cannot be expressed
+with annotations on entities we do not own.
+
+`ProcessedMessages` still exists and still guards against duplicates. It overlaps with the inbox
+but does not expire, while inbox rows are removed once the duplicate-detection window passes.
+
+The outbox tables come from a migration, so after pulling this change:
+
+```powershell
+cd Source/DataProcessorService/DataProcessorService.API
+dotnet ef migrations add Outbox --project ../DataProcessorService.DAL --startup-project .
+```
+
+### Subscribing
+
+A connection belongs to exactly one group, so it never receives the same reading twice:
+
+```js
+await connection.invoke("Subscribe", null, null);            // readings:all
+await connection.invoke("Subscribe", "Kitchen", null);       // readings:location:Kitchen
+await connection.invoke("Subscribe", null, "co2");           // readings:metric:co2
+await connection.invoke("Subscribe", "Kitchen", "co2");      // both
+await connection.invoke("Unsubscribe");
+```
+
+The server calls two methods back: `ReadingsReceived(readings)` and, when a value leaves its
+configured band, `AlertsRaised(alerts)`. An alert carries the reading it was raised for, the
+threshold that was crossed and whether it went `Above` or `Below`.
+
+### Thresholds
+
+Configured per metric in `appsettings.json`; a metric without an entry never raises an alert,
+and readings that carry a boolean instead of a number are skipped.
+
+```json
+"Notifications": {
+  "Thresholds": [
+    { "MetricCode": "co2", "Max": 1000 },
+    { "MetricCode": "humidity", "Min": 30, "Max": 70 }
+  ]
+}
+```
+
+### Browser origins
+
+The test client is served by the service itself, so it needs no CORS. A frontend on another
+origin does: list it in `ClientApp:AllowedOrigins`, or set `CLIENT_APP_ORIGIN` in `.env` for the
+container. SignalR sends credentials, so a wildcard origin is not an option.

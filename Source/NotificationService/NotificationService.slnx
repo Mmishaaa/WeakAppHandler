@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="NotificationService.API/NotificationService.API.csproj" />
+  <Project Path="NotificationService.BLL/NotificationService.BLL.csproj" />
+  <Project Path="../Shared/Shared.csproj" />
+</Solution>

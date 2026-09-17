@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeakAppHandler notifications</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #dfe3e8;
+    --text: #1c1f23;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --alert: #b91c1c;
+    --alert-bg: #fef2f2;
+    --ok: #15803d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    font: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    min-width: 160px;
+  }
+  button {
+    font: inherit;
+    padding: 7px 14px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  button.secondary { background: #6b7280; }
+  button:disabled { opacity: .5; cursor: default; }
+  .status { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9ca3af; }
+  .dot.on { background: var(--ok); }
+  code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  tbody tr.alert { background: var(--alert-bg); }
+  tbody tr.alert td:last-child { color: var(--alert); font-weight: 600; }
+  .counts { color: var(--muted); font-size: 12px; }
+  .scroll { max-height: 420px; overflow-y: auto; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>WeakAppHandler notifications</h1>
+  <p class="sub">Live feed from the SignalR hub at <code>/hubs/readings</code>.</p>
+
+  <div class="panel">
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="state">disconnected</span>
+      <span class="counts" id="group"></span>
+    </div>
+    <div class="row">
+      <div>
+        <label for="location">Location (blank = any)</label>
+        <input id="location" placeholder="Kitchen">
+      </div>
+      <div>
+        <label for="metric">Metric code (blank = any)</label>
+        <input id="metric" placeholder="co2">
+      </div>
+      <button id="subscribe">Subscribe</button>
+      <button id="unsubscribe" class="secondary">Unsubscribe</button>
+      <button id="clear" class="secondary">Clear</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2 style="font-size:15px;margin:0 0 8px">Readings <span class="counts" id="readingCount">0</span></h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Location</th><th>Metric</th><th>Value</th></tr>
+          </thead>
+          <tbody id="readings"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:15px;margin:0 0 8px">Alerts <span class="counts" id="alertCount">0</span></h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Location</th><th>Metric</th><th>Value</th><th>Breach</th></tr>
+          </thead>
+          <tbody id="alerts"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/10.0.11/signalr.min.js"></script>
+<script>
+const maxRows = 200;
+let readingTotal = 0;
+let alertTotal = 0;
+
+const el = (id) => document.getElementById(id);
+const time = (iso) => new Date(iso).toLocaleTimeString();
+const value = (reading) => reading.numeric !== null && reading.numeric !== undefined
+  ? reading.numeric
+  : String(reading.flag);
+
+function trim(tbody) {
+  while (tbody.rows.length > maxRows) {
+    tbody.deleteRow(tbody.rows.length - 1);
+  }
+}
+
+function addReading(reading) {
+  const tbody = el("readings");
+  const row = tbody.insertRow(0);
+  row.innerHTML = `<td>${time(reading.observedAt)}</td><td>${reading.location}</td>` +
+    `<td>${reading.metricCode}</td><td>${value(reading)}</td>`;
+  trim(tbody);
+  el("readingCount").textContent = ++readingTotal;
+}
+
+function addAlert(alert) {
+  const tbody = el("alerts");
+  const row = tbody.insertRow(0);
+  row.className = "alert";
+  const breach = alert.kind === "Above"
+    ? `above ${alert.threshold}`
+    : `below ${alert.threshold}`;
+  row.innerHTML = `<td>${time(alert.reading.observedAt)}</td><td>${alert.reading.location}</td>` +
+    `<td>${alert.reading.metricCode}</td><td>${value(alert.reading)}</td><td>${breach}</td>`;
+  trim(tbody);
+  el("alertCount").textContent = ++alertTotal;
+}
+
+const connection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/readings")
+  .withAutomaticReconnect()
+  .configureLogging(signalR.LogLevel.Information)
+  .build();
+
+connection.on("ReadingsReceived", (readings) => readings.forEach(addReading));
+connection.on("AlertsRaised", (alerts) => alerts.forEach(addAlert));
+
+function setState(text, connected) {
+  el("state").textContent = text;
+  el("dot").className = connected ? "dot on" : "dot";
+  el("subscribe").disabled = !connected;
+  el("unsubscribe").disabled = !connected;
+}
+
+connection.onreconnecting(() => setState("reconnecting", false));
+connection.onreconnected(() => setState("connected", true));
+connection.onclose(() => setState("disconnected", false));
+
+el("subscribe").addEventListener("click", async () => {
+  const group = await connection.invoke(
+    "Subscribe",
+    el("location").value.trim() || null,
+    el("metric").value.trim() || null);
+  el("group").textContent = "subscribed to " + group;
+});
+
+el("unsubscribe").addEventListener("click", async () => {
+  await connection.invoke("Unsubscribe");
+  el("group").textContent = "not subscribed";
+});
+
+el("clear").addEventListener("click", () => {
+  el("readings").innerHTML = "";
+  el("alerts").innerHTML = "";
+  readingTotal = 0;
+  alertTotal = 0;
+  el("readingCount").textContent = "0";
+  el("alertCount").textContent = "0";
+});
+
+setState("connecting", false);
+
+connection.start()
+  .then(async () => {
+    setState("connected", true);
+    const group = await connection.invoke("Subscribe", null, null);
+    el("group").textContent = "subscribed to " + group;
+  })
+  .catch((error) => setState("failed: " + error, false));
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace DataIngestorService.Configuration;
+namespace Shared.Messaging;
 
-sealed class RabbitMqOptions
+public sealed class RabbitMqOptions
 {
     public const string SectionName = "RabbitMq";
 

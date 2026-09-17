@@ -1,12 +1,11 @@
 using DataProcessorService.BLL.Models;
-using DataProcessorService.BLL.Results;
 using Shared.Results;
 
 namespace DataProcessorService.BLL.Services;
 
 public interface IReadingBatchService
 {
-    Task<Result<BatchWriteResult>> WriteAsync(
+    Task<Result<BatchWriteModel>> WriteAsync(
         MeterReadingsBatchModel batch,
         CancellationToken cancellationToken);
 }

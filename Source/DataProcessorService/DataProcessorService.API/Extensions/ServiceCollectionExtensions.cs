@@ -1,9 +1,9 @@
-using DataProcessorService.API.Configuration;
 using DataProcessorService.API.Consumers;
 using DataProcessorService.BLL.Extensions;
+using DataProcessorService.DAL;
 using MassTransit;
-using Microsoft.Extensions.Options;
 using Shared.Extensions;
+using Shared.Messaging;
 
 namespace DataProcessorService.API.Extensions;
 
@@ -21,37 +21,20 @@ static class ServiceCollectionExtensions
             services.AddGlobalExceptionHandling();
             services.AddBll(configuration);
 
-            AddMessaging(services, configuration);
+            services.AddRabbitMqMessaging(configuration, bus =>
+            {
+                bus.AddConsumer<MeterReadingsCapturedConsumer>();
+
+                bus.AddEntityFrameworkOutbox<ProcessorDbContext>(outbox => outbox.UsePostgres());
+
+                bus.AddConfigureEndpointsCallback((context, queueName, endpoint) =>
+                {
+                    endpoint.UseMessageRetry(retry => retry.Interval(RetryCount, RetryInterval));
+                    endpoint.UseEntityFrameworkOutbox<ProcessorDbContext>(context);
+                });
+            });
 
             return services;
         }
-    }
-
-    private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
-    {
-        services.AddOptions<RabbitMqOptions>()
-            .Bind(configuration.GetSection(RabbitMqOptions.SectionName))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        services.AddMassTransit(bus =>
-        {
-            bus.AddConsumer<MeterReadingsCapturedConsumer>();
-            bus.SetKebabCaseEndpointNameFormatter();
-            bus.UsingRabbitMq((context, rabbit) =>
-            {
-                var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
-
-                rabbit.Host(options.Host, (ushort)options.Port, options.VirtualHost, host =>
-                {
-                    host.Username(options.Username);
-                    host.Password(options.Password);
-                });
-
-                rabbit.UseMessageRetry(retry => retry.Interval(RetryCount, RetryInterval));
-
-                rabbit.ConfigureEndpoints(context);
-            });
-        });
     }
 }

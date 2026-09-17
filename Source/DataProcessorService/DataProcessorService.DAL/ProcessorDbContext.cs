@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Shared.Entities;
 
@@ -10,4 +11,11 @@ public sealed class ProcessorDbContext(DbContextOptions<ProcessorDbContext> opti
     public DbSet<DbReading> Readings { get; set; } = null!;
 
     public DbSet<DbProcessedMessage> ProcessedMessages { get; set; } = null!;
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.AddTransactionalOutboxEntities();
+    }
 }

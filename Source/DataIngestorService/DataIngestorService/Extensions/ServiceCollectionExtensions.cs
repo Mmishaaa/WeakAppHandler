@@ -1,9 +1,9 @@
 using DataIngestorService.Clients;
 using DataIngestorService.Configuration;
 using DataIngestorService.Workers;
-using MassTransit;
 using Microsoft.Extensions.Options;
 using Shared.Extensions;
+using Shared.Messaging;
 
 namespace DataIngestorService.Extensions;
 
@@ -20,7 +20,8 @@ static class ServiceCollectionExtensions
             services.AddGlobalExceptionHandling();
 
             AddWeakAppClient(services, configuration);
-            AddMessaging(services, configuration);
+
+            services.AddRabbitMqMessaging(configuration);
 
             services.AddHostedService<MeterIngestionWorker>();
 
@@ -47,30 +48,6 @@ static class ServiceCollectionExtensions
         {
             var options = context.ServiceProvider.GetRequiredService<IOptions<WeakAppOptions>>().Value;
             WeakAppResiliencePipeline.Configure(builder, options);
-        });
-    }
-
-    private static void AddMessaging(IServiceCollection services, IConfiguration configuration)
-    {
-        services.AddOptions<RabbitMqOptions>()
-            .Bind(configuration.GetSection(RabbitMqOptions.SectionName))
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
-
-        services.AddMassTransit(bus =>
-        {
-            bus.UsingRabbitMq((context, rabbit) =>
-            {
-                var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
-
-                rabbit.Host(options.Host, (ushort)options.Port, options.VirtualHost, host =>
-                {
-                    host.Username(options.Username);
-                    host.Password(options.Password);
-                });
-
-                rabbit.ConfigureEndpoints(context);
-            });
         });
     }
 }

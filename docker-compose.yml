@@ -131,6 +131,26 @@ services:
       postgres:
         condition: service_healthy
 
+  notifications:
+    build:
+      context: .
+      dockerfile: Source/NotificationService/NotificationService.API/Dockerfile
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${NOTIFICATIONS_PORT:-5244}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      # The browser origin the future frontend will be served from.
+      ClientApp__AllowedOrigins__0: ${CLIENT_APP_ORIGIN:-http://localhost:5173}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   gateway:
     build:
       context: .

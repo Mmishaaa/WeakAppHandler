@@ -14,34 +14,36 @@ public sealed class ReadingBatchService(
     IUnitOfWorkService unitOfWorkService)
     : IReadingBatchService
 {
-    public async Task<Result<BatchWriteResult>> WriteAsync(
+    public async Task<Result<BatchWriteModel>> WriteAsync(
         MeterReadingsBatchModel batch,
         CancellationToken cancellationToken)
     {
         if (batch.Readings.Count == 0)
         {
-            return Result.Failure<BatchWriteResult>(ReadingBatchErrors.EmptyBatch);
+            return Result.Failure<BatchWriteModel>(ReadingBatchErrors.EmptyBatch);
         }
 
         await using var scope = await unitOfWorkService.CreateScopeAsync(cancellationToken);
 
         if (await processedMessageRepository.ExistsAsync(batch.MessageId, cancellationToken))
         {
-            return Result.Success(BatchWriteResult.Duplicate);
+            return Result.Success(BatchWriteModel.Duplicate);
         }
 
         var meters = await ResolveMetersAsync(batch, cancellationToken);
 
-        await readingRepository.AddRangeAsync(
-            batch.Readings.Select(reading => new DbReading
+        var readings = batch.Readings
+            .Select(reading => new DbReading
             {
                 MeterId = meters[(reading.Location, reading.MeterType)].Id,
                 MetricCode = reading.MetricCode,
                 ObservedAt = batch.CapturedAt,
                 ValueNumeric = reading.Numeric,
                 ValueBool = reading.Flag,
-            }),
-            cancellationToken);
+            })
+            .ToList();
+
+        await readingRepository.AddRangeAsync(readings, cancellationToken);
 
         await processedMessageRepository.AddAsync(
             new DbProcessedMessage
@@ -53,8 +55,23 @@ public sealed class ReadingBatchService(
 
         await scope.CommitAsync(cancellationToken);
 
-        return Result.Success(BatchWriteResult.Stored);
+        var metersById = meters.Values.ToDictionary(meter => meter.Id);
+
+        return Result.Success(new BatchWriteModel(
+            BatchWriteResult.Stored,
+            [.. readings.Select(reading => ToStoredModel(reading, metersById[reading.MeterId]))]));
     }
+
+    private static StoredReadingModel ToStoredModel(DbReading reading, DbMeter meter) =>
+        new(
+            reading.Id,
+            reading.MeterId,
+            meter.Location,
+            meter.MeterType,
+            reading.MetricCode,
+            reading.ObservedAt,
+            reading.ValueNumeric,
+            reading.ValueBool);
 
     private async Task<Dictionary<(string Location, string MeterType), DbMeter>> ResolveMetersAsync(
         MeterReadingsBatchModel batch,
