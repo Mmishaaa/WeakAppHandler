@@ -99,6 +99,41 @@ docker compose exec postgres psql -U gateway -d weakapphandler -c 'delete from "
 
 The first succeeds, the second fails with `permission denied for table Readings`.
 
+## REST API
+
+The processor owns the write side, so REST lives there rather than on the read-only gateway.
+
+| What | Where |
+|------|-------|
+| Endpoints | `http://localhost:5242/api` |
+| OpenAPI document | `GET http://localhost:5242/openapi/v1.json` |
+| Scalar UI | `http://localhost:5242/scalar` |
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/api/meters?location=&meterType=` | registered meters |
+| GET | `/api/meters/{id}` | one meter |
+| GET | `/api/meters/{id}/readings?metricCode=&from=&to=&page=&pageSize=` | that meter's readings, newest first |
+| POST | `/api/readings` | submit a batch of readings |
+
+`POST /api/readings` does not write to the database directly. It publishes `MeterReadingsCaptured`
+to RabbitMQ, the same message the ingestor sends, and answers `202 Accepted` with the batch id. The
+existing consumer then persists it, which means the submission gets the inbox deduplication, the
+transactional outbox and the SignalR notification for free, with no second write path to keep in
+sync.
+
+```bash
+curl -i -X POST http://localhost:5242/api/readings \
+  -H "Content-Type: application/json" \
+  -d '{"readings":[{"location":"Kitchen","meterType":"air_quality","metricCode":"co2","numeric":1450}]}'
+```
+
+That value is above the configured threshold, so a client connected to the notification service
+receives both the reading and an alert within a second or two.
+
+Each reading carries either `numeric` or `flag`, never both and never neither; a batch that breaks
+that rule comes back as `400` with a per-item validation problem.
+
 ## GraphQL Gateway
 
 Read-only GraphQL API over the same database, for the frontend.

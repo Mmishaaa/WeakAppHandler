@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
             services.AddDal(configuration);
 
             services.AddScoped<IReadingBatchService, ReadingBatchService>();
+            services.AddScoped<IMeterQueryService, MeterQueryService>();
 
             return services;
         }
