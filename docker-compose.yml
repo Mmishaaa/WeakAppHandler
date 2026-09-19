@@ -171,6 +171,28 @@ services:
       processor:
         condition: service_started
 
+  frontend:
+    build:
+      # Self-contained context: the app needs nothing from the rest of the repository.
+      context: ./Source/Frontend
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-5180}:80"
+    environment:
+      # nginx proxies these under the page's own origin, so the browser never sees CORS.
+      GATEWAY_URL: http://gateway:8080
+      PROCESSOR_URL: http://processor:8080
+      NOTIFICATIONS_URL: http://notifications:8080
+    depends_on:
+      gateway:
+        condition: service_started
+      processor:
+        condition: service_started
+      notifications:
+        condition: service_started
+
 volumes:
   postgres-data:
   rabbitmq-data:

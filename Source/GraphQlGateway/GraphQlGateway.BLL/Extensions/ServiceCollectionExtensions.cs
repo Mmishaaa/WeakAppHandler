@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
                 configuration.GetSection(ThresholdOptions.SectionName));
 
             services.AddScoped<IReadingStatsService, ReadingStatsService>();
+            services.AddScoped<IFilterOptionsService, FilterOptionsService>();
 
             return services;
         }

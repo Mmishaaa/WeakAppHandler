@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
                     .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
 
             services.AddScoped<IReadingRepository, ReadingRepository>();
+            services.AddScoped<IFilterOptionsRepository, FilterOptionsRepository>();
 
             return services;
         }

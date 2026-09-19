@@ -1,0 +1,74 @@
+query FilterOptions {
+  filterOptions {
+    locations
+    meterTypes
+    metricCodes
+  }
+}
+
+query MetricSnapshot {
+  metricSnapshot {
+    metricCode
+    unit
+    location
+    meterType
+    observedAt
+    numeric
+    flag
+    locationCount
+    state
+    threshold
+  }
+}
+
+query ReadingSeries($input: ReadingStatsModelInput!, $locations: [String!]) {
+  readingSeries(input: $input, locations: $locations) {
+    location
+    buckets {
+      bucketStart
+      count
+      min
+      max
+      average
+    }
+  }
+}
+
+query LocationStats($from: DateTime!, $to: DateTime!, $metricCode: String) {
+  locationStats(from: $from, to: $to, metricCode: $metricCode) {
+    location
+    metricCode
+    count
+    min
+    max
+    average
+  }
+}
+
+query Readings(
+  $filter: ReadingFilterModelInput
+  $first: Int
+  $after: String
+  $last: Int
+  $before: String
+) {
+  readings(filter: $filter, first: $first, after: $after, last: $last, before: $before) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+    nodes {
+      id
+      meterId
+      location
+      meterType
+      metricCode
+      observedAt
+      numeric
+      flag
+    }
+  }
+}

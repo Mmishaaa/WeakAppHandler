@@ -31,6 +31,7 @@ for the gateway.
 | Data Processor | http://localhost:5242 |
 | GraphQL Gateway / Nitro IDE | http://localhost:5243/graphql |
 | Notification Service / test client | http://localhost:5244 |
+| Dashboard | http://localhost:5180 |
 
 Startup order is handled by health checks: the ingestor waits for WeakApp and the broker, the
 processor for the broker and the database, the notification service for the broker. The
@@ -143,8 +144,16 @@ Read-only GraphQL API over the same database, for the frontend.
 | GraphQL endpoint | `POST http://localhost:5243/graphql` |
 | Nitro IDE | `http://localhost:5243/graphql` in a browser |
 
-Queries: `meters`, `readings` (cursor pagination), `latestReadings`, `readingStats`,
-`locationStats`.
+Queries: `meters`, `readings` (cursor pagination), `filterOptions`, `latestReadings`,
+`metricSnapshot`, `readingStats`, `readingSeries`, `locationStats`.
+
+Filtering, sorting, bucketing and aggregation all happen in SQL. `metricSnapshot` and
+`readingSeries` exist so the browser never has to group or rank anything: the first returns
+one row per metric with its unit, its worst current location and whether it sits inside the
+configured band, the second returns one bucketed series per location from a single
+`GROUP BY`. `filterOptions` returns the distinct locations, meter types and metric codes, so
+even the dropdowns are filled from the database rather than by de-duplicating a list in the
+page.
 
 ### Exporting the schema
 
@@ -159,6 +168,48 @@ Or directly:
 
 ```bash
 dotnet run --project Source/GraphQlGateway/GraphQlGateway.API --no-launch-profile -- schema export --output Source/GraphQlGateway/schema.graphql
+```
+
+## Dashboard
+
+The frontend: React, TypeScript and Vite, served by nginx in its own container.
+
+| What | Where |
+|------|-------|
+| Dashboard | `http://localhost:5180` |
+| Dev server | `http://localhost:5173` after `yarn dev` |
+
+```bash
+cd Source/Frontend
+yarn install
+yarn dev
+```
+
+Yarn 4 through Corepack, which is bundled with Node: the exact version lives in `packageManager`
+in `package.json`, so your machine, the Docker build and CI all resolve the same one. If `yarn`
+is not on the path yet, `corepack enable` once is enough — do not install Yarn from npm, the
+`yarn` package there only publishes 1.x. `.yarnrc.yml` turns off Plug'n'Play: Vite, TypeScript
+and oxlint all expect a real `node_modules` tree.
+
+The dev server and nginx both proxy `/graphql`, `/api` and `/hubs` to the gateway, the processor
+and the notification service, so the page only ever talks to its own origin. That is why there is
+no API URL to configure in the browser and no CORS to arrange: in the container the three targets
+come from `GATEWAY_URL`, `PROCESSOR_URL` and `NOTIFICATIONS_URL`, in development from the proxy
+table in `vite.config.ts`.
+
+The panels are the dashboard tiles (`metricSnapshot`), the per-location chart (`readingSeries`),
+the location table (`locationStats`), the paged reading list (`readings`, keyset cursors), the
+live feed (SignalR) and the submit form (`POST /api/readings`). Nothing is filtered, sorted or
+aggregated in the browser — every panel asks the server for exactly the rows it draws.
+
+### Generated types
+
+`src/gql/graphql.ts` is generated from the exported schema and committed, so neither the Docker
+build nor CI needs a running gateway. Regenerate it whenever the schema changes:
+
+```bash
+./Source/GraphQlGateway/export-schema.ps1
+cd Source/Frontend && yarn codegen
 ```
 
 ## Notification Service
@@ -220,16 +271,22 @@ Configured per metric in `appsettings.json`; a metric without an entry never rai
 and readings that carry a boolean instead of a number are skipped.
 
 ```json
-"Notifications": {
-  "Thresholds": [
-    { "MetricCode": "co2", "Max": 1000 },
-    { "MetricCode": "humidity", "Min": 30, "Max": 70 }
+"Thresholds": {
+  "Metrics": [
+    { "MetricCode": "co2", "Unit": "ppm", "Max": 1000 },
+    { "MetricCode": "humidity", "Unit": "%", "Min": 30, "Max": 70 }
   ]
 }
 ```
 
+The same section is bound by the gateway, from `Shared.Configuration.ThresholdOptions`. The
+notification service uses it to decide when to raise an alert; the gateway uses it so
+`metricSnapshot` can return the band state and the unit with each metric, which keeps that
+judgement on the server instead of in the page.
+
 ### Browser origins
 
-The test client is served by the service itself, so it needs no CORS. A frontend on another
-origin does: list it in `ClientApp:AllowedOrigins`, or set `CLIENT_APP_ORIGIN` in `.env` for the
-container. SignalR sends credentials, so a wildcard origin is not an option.
+The test client is served by the service itself, and the dashboard container reaches the hub
+through its own nginx, so neither needs CORS. The Vite dev server does, because it opens the
+WebSocket from `http://localhost:5173`: that origin is the `CLIENT_APP_ORIGIN` default and lands
+in `ClientApp:AllowedOrigins`. SignalR sends credentials, so a wildcard origin is not an option.

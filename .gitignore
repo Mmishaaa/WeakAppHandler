@@ -357,5 +357,6 @@ publish_output
 .env
 
 .claude/settings.local.json
-# Iconic wallet integration test reports
-Source/iconic-wallet-tests-report/
+
+# Side artifact of `schema export`: a Nitro connection profile, not part of the schema.
+Source/GraphQlGateway/schema-settings.json

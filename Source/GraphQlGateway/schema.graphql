@@ -26,6 +26,7 @@ type Query {
       requireOneSlicingArgument: false
     )
     @cost(weight: "10")
+  filterOptions: FilterOptionsModel! @cost(weight: "10")
   latestReadings(location: String, meterType: String): [ReadingModel!]!
     @cost(weight: "10")
   metricSnapshot: [MetricSnapshotModel!]! @cost(weight: "10")
@@ -35,6 +36,12 @@ type Query {
     @cost(weight: "10")
   locationStats(from: DateTime!, to: DateTime!, metricCode: String): [LocationStatModel!]!
     @cost(weight: "10")
+}
+
+type FilterOptionsModel {
+  locations: [String!]!
+  meterTypes: [String!]!
+  metricCodes: [String!]!
 }
 
 type LocationSeriesModel {

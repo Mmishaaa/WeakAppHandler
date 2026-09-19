@@ -25,6 +25,11 @@ public sealed class Query
             .OrderByDescending(reading => reading.ObservedAt)
             .ThenByDescending(reading => reading.Id);
 
+    public async Task<FilterOptionsModel> GetFilterOptionsAsync(
+        IFilterOptionsService filterOptionsService,
+        CancellationToken cancellationToken) =>
+        await filterOptionsService.GetAsync(cancellationToken);
+
     public async Task<IReadOnlyList<ReadingModel>> GetLatestReadingsAsync(
         IReadingStatsService readingStatsService,
         CancellationToken cancellationToken,
