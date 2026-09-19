@@ -9,7 +9,7 @@ import { AppBar } from './AppBar'
 import { MetricTiles } from './MetricTiles'
 import { SeriesChart } from './SeriesChart'
 import { LiveFeed } from './LiveFeed'
-import { LocationTable } from './LocationTable'
+import { BreakdownPanel } from './BreakdownPanel'
 import { SubmitForm } from './SubmitForm'
 import { ReadingsTable } from './ReadingsTable'
 import { initialFilters } from './filters'
@@ -98,7 +98,7 @@ export const Dashboard = () => {
         </div>
 
         <div className="split">
-          <LocationTable
+          <BreakdownPanel
             metricCode={metricCode}
             range={range}
             windowLabel={window_.label}

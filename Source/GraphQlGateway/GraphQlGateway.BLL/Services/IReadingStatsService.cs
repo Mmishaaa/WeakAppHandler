@@ -19,6 +19,12 @@ public interface IReadingStatsService
         string? metricCode,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<MeterTypeStatModel>> GetMeterTypeStatsAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        string? metricCode,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<ReadingModel>> GetLatestReadingsAsync(
         string? location,
         string? meterType,

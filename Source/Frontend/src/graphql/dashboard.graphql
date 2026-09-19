@@ -27,6 +27,8 @@ query ReadingSeries($input: ReadingStatsModelInput!, $locations: [String!]) {
     buckets {
       bucketStart
       count
+      trueCount
+      trueShare
       min
       max
       average
@@ -39,6 +41,21 @@ query LocationStats($from: DateTime!, $to: DateTime!, $metricCode: String) {
     location
     metricCode
     count
+    trueCount
+    trueShare
+    min
+    max
+    average
+  }
+}
+
+query MeterTypeStats($from: DateTime!, $to: DateTime!, $metricCode: String) {
+  meterTypeStats(from: $from, to: $to, metricCode: $metricCode) {
+    meterType
+    metricCode
+    count
+    trueCount
+    trueShare
     min
     max
     average

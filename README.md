@@ -169,7 +169,7 @@ Read-only GraphQL API over the same database, for the frontend.
 | Nitro IDE | `http://localhost:5243/graphql` in a browser |
 
 Queries: `meters`, `readings` (cursor pagination), `filterOptions`, `latestReadings`,
-`metricSnapshot`, `readingStats`, `readingSeries`, `locationStats`.
+`metricSnapshot`, `readingStats`, `readingSeries`, `locationStats`, `meterTypeStats`.
 
 Filtering, sorting, bucketing and aggregation all happen in SQL. `metricSnapshot` and
 `readingSeries` exist so the browser never has to group or rank anything: the first returns
@@ -222,9 +222,41 @@ come from `GATEWAY_URL`, `PROCESSOR_URL` and `NOTIFICATIONS_URL`, in development
 table in `vite.config.ts`.
 
 The panels are the dashboard tiles (`metricSnapshot`), the per-location chart (`readingSeries`),
-the location table (`locationStats`), the paged reading list (`readings`, keyset cursors), the
-live feed (SignalR) and the submit form (`POST /api/readings`). Nothing is filtered, sorted or
-aggregated in the browser — every panel asks the server for exactly the rows it draws.
+the breakdown table, the paged reading list (`readings`, keyset cursors), the live feed (SignalR)
+and the submit form (`POST /api/readings`). Nothing is filtered, sorted or aggregated in the
+browser — every panel asks the server for exactly the rows it draws.
+
+The breakdown table switches between two dimensions, and the switch changes which query runs
+rather than how the rows are processed: `locationStats` groups by location and metric,
+`meterTypeStats` by meter type and metric.
+
+The two behave differently on purpose. By location follows the metric picked in the toolbar and
+orders by the average descending, so the first row is the peak and the bar widths are a ratio
+against it. By type ignores that filter and lists every metric, because each metric here comes
+from exactly one kind of meter — filtered to one metric, the grouping would always collapse to a
+single row. Rows from different metrics are not on one scale, so that view is ordered by type and
+metric and drops the comparison bar.
+
+Boolean metrics such as `motion_detected` have no number to average, so every aggregate carries
+two more columns from the same `GROUP BY`: `trueCount`, the number of readings that were true,
+and `trueShare`, the fraction of the bucket they make up.
+
+The share is what gets drawn, not the count, and that distinction matters. A count rises and
+falls with how many readings happened to land in the bucket, so the newest bucket always dips
+because it is still filling and any gap in ingestion shows up as a trough — the picture ends up
+describing the ingestor's uptime rather than the sensors. A share is immune to that: half the
+readings detecting motion reads as 50% whether the hour holds twelve samples or three hundred
+and sixty.
+
+Boolean metrics are also drawn differently. Six smoothed lines suit a continuous quantity, not a
+sensor that is either firing or not, and at 0 and 1 the locations would sit on top of each other.
+So the panel switches to a state strip: one row per location, one cell per bucket, shaded by the
+share, with the exact counts on hover. Nothing overlaps, and a bucket with no readings at all is
+hatched rather than drawn as zero.
+
+A metric whose rows all come back with a null average is drawn that way automatically. The table
+keeps min, max and average — blank for boolean rows — and adds detection and share columns
+whenever any row has detections, which is what makes the mixed by-type view readable.
 
 ### Generated types
 

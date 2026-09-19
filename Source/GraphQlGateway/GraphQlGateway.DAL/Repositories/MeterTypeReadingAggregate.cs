@@ -1,7 +1,7 @@
 namespace GraphQlGateway.DAL.Repositories;
 
-public sealed record LocationReadingAggregate(
-    string Location,
+public sealed record MeterTypeReadingAggregate(
+    string MeterType,
     string MetricCode,
     int Count,
     int TrueCount,

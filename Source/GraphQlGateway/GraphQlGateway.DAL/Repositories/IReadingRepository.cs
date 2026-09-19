@@ -27,6 +27,12 @@ public interface IReadingRepository
         string? metricCode,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<MeterTypeReadingAggregate>> GetMeterTypeAggregatesAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        string? metricCode,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<DbReading>> GetLatestAsync(
         string? location,
         string? meterType,

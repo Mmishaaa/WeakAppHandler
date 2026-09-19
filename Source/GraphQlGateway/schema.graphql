@@ -34,6 +34,8 @@ type Query {
     @cost(weight: "10")
   readingSeries(input: ReadingStatsModelInput!, locations: [String!]): [LocationSeriesModel!]!
     @cost(weight: "10")
+  meterTypeStats(from: DateTime!, to: DateTime!, metricCode: String): [MeterTypeStatModel!]!
+    @cost(weight: "10")
   locationStats(from: DateTime!, to: DateTime!, metricCode: String): [LocationStatModel!]!
     @cost(weight: "10")
 }
@@ -53,6 +55,8 @@ type LocationStatModel {
   location: String!
   metricCode: String!
   count: Int!
+  trueCount: Int!
+  trueShare: Decimal!
   min: Decimal
   max: Decimal
   average: Decimal
@@ -64,6 +68,17 @@ type MeterModel {
   meterType: String!
   firstSeenAt: DateTime!
   lastSeenAt: DateTime!
+}
+
+type MeterTypeStatModel {
+  meterType: String!
+  metricCode: String!
+  count: Int!
+  trueCount: Int!
+  trueShare: Decimal!
+  min: Decimal
+  max: Decimal
+  average: Decimal
 }
 
 type MetricSnapshotModel {
@@ -94,6 +109,8 @@ type PageInfo {
 type ReadingBucketModel {
   bucketStart: DateTime!
   count: Int!
+  trueCount: Int!
+  trueShare: Decimal!
   min: Decimal
   max: Decimal
   average: Decimal

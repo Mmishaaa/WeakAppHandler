@@ -17,7 +17,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
     {
         await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = Measured(dbContext, metricCode, from, to);
+        var query = InWindow(dbContext, metricCode, from, to);
 
         if (meterId is { } meter)
         {
@@ -48,6 +48,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                     group.Key.Day,
                     0,
                     group.Count(),
+                    group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                    group.Average(reading => reading.ValueBool == true ? 1m : 0m),
                     group.Min(reading => reading.ValueNumeric),
                     group.Max(reading => reading.ValueNumeric),
                     group.Average(reading => reading.ValueNumeric)))
@@ -73,6 +75,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 group.Key.Day,
                 group.Key.Hour,
                 group.Count(),
+                group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                group.Average(reading => reading.ValueBool == true ? 1m : 0m),
                 group.Min(reading => reading.ValueNumeric),
                 group.Max(reading => reading.ValueNumeric),
                 group.Average(reading => reading.ValueNumeric)))
@@ -89,7 +93,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
     {
         await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = Measured(dbContext, metricCode, from, to);
+        var query = InWindow(dbContext, metricCode, from, to);
 
         if (locations.Count > 0)
         {
@@ -117,6 +121,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                     group.Key.Day,
                     0,
                     group.Count(),
+                    group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                    group.Average(reading => reading.ValueBool == true ? 1m : 0m),
                     group.Min(reading => reading.ValueNumeric),
                     group.Max(reading => reading.ValueNumeric),
                     group.Average(reading => reading.ValueNumeric)))
@@ -144,6 +150,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 group.Key.Day,
                 group.Key.Hour,
                 group.Count(),
+                group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                group.Average(reading => reading.ValueBool == true ? 1m : 0m),
                 group.Min(reading => reading.ValueNumeric),
                 group.Max(reading => reading.ValueNumeric),
                 group.Average(reading => reading.ValueNumeric)))
@@ -160,8 +168,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
 
         var query = dbContext.Readings.Where(reading =>
             reading.ObservedAt >= from &&
-            reading.ObservedAt < to &&
-            reading.ValueNumeric != null);
+            reading.ObservedAt < to);
 
         if (metricCode is { Length: > 0 } metricCodeFilter)
         {
@@ -171,11 +178,47 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
         return await query
             .GroupBy(reading => new { reading.Meter.Location, reading.MetricCode })
             .OrderByDescending(group => group.Average(reading => reading.ValueNumeric))
+            .ThenByDescending(group => group.Average(reading => reading.ValueBool == true ? 1m : 0m))
             .ThenBy(group => group.Key.Location)
             .Select(group => new LocationReadingAggregate(
                 group.Key.Location,
                 group.Key.MetricCode,
                 group.Count(),
+                group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                group.Average(reading => reading.ValueBool == true ? 1m : 0m),
+                group.Min(reading => reading.ValueNumeric),
+                group.Max(reading => reading.ValueNumeric),
+                group.Average(reading => reading.ValueNumeric)))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<MeterTypeReadingAggregate>> GetMeterTypeAggregatesAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        string? metricCode,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = dbContext.Readings.Where(reading =>
+            reading.ObservedAt >= from &&
+            reading.ObservedAt < to);
+
+        if (metricCode is { Length: > 0 } metricCodeFilter)
+        {
+            query = query.Where(reading => reading.MetricCode == metricCodeFilter);
+        }
+
+        return await query
+            .GroupBy(reading => new { reading.Meter.MeterType, reading.MetricCode })
+            .OrderBy(group => group.Key.MeterType)
+            .ThenBy(group => group.Key.MetricCode)
+            .Select(group => new MeterTypeReadingAggregate(
+                group.Key.MeterType,
+                group.Key.MetricCode,
+                group.Count(),
+                group.Sum(reading => reading.ValueBool == true ? 1 : 0),
+                group.Average(reading => reading.ValueBool == true ? 1m : 0m),
                 group.Min(reading => reading.ValueNumeric),
                 group.Max(reading => reading.ValueNumeric),
                 group.Average(reading => reading.ValueNumeric)))
@@ -221,7 +264,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
             .ToListAsync(cancellationToken);
     }
 
-    private static IQueryable<DbReading> Measured(
+    private static IQueryable<DbReading> InWindow(
         GatewayDbContext dbContext,
         string metricCode,
         DateTimeOffset from,
@@ -229,6 +272,5 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
         dbContext.Readings.Where(reading =>
             reading.MetricCode == metricCode &&
             reading.ObservedAt >= from &&
-            reading.ObservedAt < to &&
-            reading.ValueNumeric != null);
+            reading.ObservedAt < to);
 }

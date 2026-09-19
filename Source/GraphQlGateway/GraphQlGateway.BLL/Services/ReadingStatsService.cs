@@ -72,6 +72,34 @@ public sealed class ReadingStatsService(
                 aggregate.Location,
                 aggregate.MetricCode,
                 aggregate.Count,
+                aggregate.TrueCount,
+                aggregate.TrueShare,
+                aggregate.Min,
+                aggregate.Max,
+                aggregate.Average)),
+        ];
+    }
+
+    public async Task<IReadOnlyList<MeterTypeStatModel>> GetMeterTypeStatsAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        string? metricCode,
+        CancellationToken cancellationToken)
+    {
+        var aggregates = await readingRepository.GetMeterTypeAggregatesAsync(
+            from,
+            to,
+            metricCode,
+            cancellationToken);
+
+        return
+        [
+            .. aggregates.Select(aggregate => new MeterTypeStatModel(
+                aggregate.MeterType,
+                aggregate.MetricCode,
+                aggregate.Count,
+                aggregate.TrueCount,
+                aggregate.TrueShare,
                 aggregate.Min,
                 aggregate.Max,
                 aggregate.Average)),
@@ -165,6 +193,8 @@ public sealed class ReadingStatsService(
                 0,
                 TimeSpan.Zero),
             aggregate.Count,
+            aggregate.TrueCount,
+            aggregate.TrueShare,
             aggregate.Min,
             aggregate.Max,
             aggregate.Average);

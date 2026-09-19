@@ -25,6 +25,15 @@ export const useLiveReadings = (subscription: LiveSubscription): LiveReadingsSta
   const [revision, setRevision] = useState(0)
   const connectionRef = useRef<HubConnection | null>(null)
 
+  const subscriptionKey = `${subscription.location ?? ''}|${subscription.metricCode ?? ''}`
+  const [feedKey, setFeedKey] = useState(subscriptionKey)
+
+  if (feedKey !== subscriptionKey) {
+    setFeedKey(subscriptionKey)
+    setEvents([])
+    setGroup(null)
+  }
+
   useEffect(() => {
     const connection = new HubConnectionBuilder()
       .withUrl('/hubs/readings')

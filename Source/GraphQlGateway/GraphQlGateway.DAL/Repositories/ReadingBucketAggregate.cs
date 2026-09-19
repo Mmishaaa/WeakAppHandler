@@ -7,6 +7,8 @@ public sealed record ReadingBucketAggregate(
     int Day,
     int Hour,
     int Count,
+    int TrueCount,
+    decimal TrueShare,
     decimal? Min,
     decimal? Max,
     decimal? Average);

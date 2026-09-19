@@ -13,6 +13,7 @@ import { Panel } from '../components/Panel'
 import { EmptyState, ErrorState, LoadingState } from '../components/PanelState'
 import { formatBucket, formatNumber } from '../lib/format'
 import { seriesColor } from '../lib/series'
+import { FlagStrip } from './FlagStrip'
 import { useRefetchOn } from '../lib/useRefetchOn'
 import type { WindowRange } from '../lib/windows'
 
@@ -48,9 +49,15 @@ export const SeriesChart = ({
 
   const title = metricCode === null ? 'Readings over time' : `${metricCode} over time`
   const series = data?.readingSeries ?? []
+  const flagMode =
+    series.some((entry) => entry.buckets.length > 0) &&
+    series.every((entry) => entry.buckets.every((bucket) => bucket.average === null))
+  const subtitle = flagMode
+    ? `share of readings detecting · ${windowLabel.toLowerCase()}`
+    : windowLabel.toLowerCase()
 
   return (
-    <Panel title={title} sub={windowLabel.toLowerCase()}>
+    <Panel title={title} sub={subtitle}>
       {renderBody()}
     </Panel>
   )
@@ -72,9 +79,13 @@ export const SeriesChart = ({
       return (
         <EmptyState
           title="Nothing in this window"
-          hint="No numeric reading for this metric in the selected period."
+          hint="No reading for this metric in the selected period."
         />
       )
+    }
+
+    if (flagMode) {
+      return <FlagStrip series={series} bucket={range.bucket} />
     }
 
     return (

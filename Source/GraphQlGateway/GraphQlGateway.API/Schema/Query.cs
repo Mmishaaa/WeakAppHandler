@@ -55,6 +55,14 @@ public sealed class Query
         IReadOnlyList<string>? locations = null) =>
         await readingStatsService.GetLocationSeriesAsync(input, locations, cancellationToken);
 
+    public async Task<IReadOnlyList<MeterTypeStatModel>> GetMeterTypeStatsAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        IReadingStatsService readingStatsService,
+        CancellationToken cancellationToken,
+        string? metricCode = null) =>
+        await readingStatsService.GetMeterTypeStatsAsync(from, to, metricCode, cancellationToken);
+
     public async Task<IReadOnlyList<LocationStatModel>> GetLocationStatsAsync(
         DateTimeOffset from,
         DateTimeOffset to,

@@ -24,6 +24,14 @@ const stampFormat = new Intl.DateTimeFormat(undefined, {
   hour12: false,
 })
 
+const shareFormat = new Intl.NumberFormat(undefined, {
+  style: 'percent',
+  maximumFractionDigits: 1,
+})
+
+export const formatShare = (value: number | null | undefined): string =>
+  value === null || value === undefined ? '—' : shareFormat.format(value)
+
 export const formatNumber = (value: number | null | undefined): string =>
   value === null || value === undefined ? '—' : numberFormat.format(value)
 
