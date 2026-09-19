@@ -1,6 +1,7 @@
 namespace GraphQlGateway.DAL.Repositories;
 
-public sealed record HourlyReadingAggregate(
+public sealed record ReadingBucketAggregate(
+    string Location,
     int Year,
     int Month,
     int Day,
@@ -8,4 +9,4 @@ public sealed record HourlyReadingAggregate(
     int Count,
     decimal? Min,
     decimal? Max,
-    decimal? Sum);
+    decimal? Average);

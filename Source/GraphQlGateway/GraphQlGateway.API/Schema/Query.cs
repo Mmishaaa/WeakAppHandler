@@ -32,11 +32,23 @@ public sealed class Query
         string? meterType = null) =>
         await readingStatsService.GetLatestReadingsAsync(location, meterType, cancellationToken);
 
+    public async Task<IReadOnlyList<MetricSnapshotModel>> GetMetricSnapshotAsync(
+        IReadingStatsService readingStatsService,
+        CancellationToken cancellationToken) =>
+        await readingStatsService.GetMetricSnapshotAsync(cancellationToken);
+
     public async Task<IReadOnlyList<ReadingBucketModel>> GetReadingStatsAsync(
         ReadingStatsModel input,
         IReadingStatsService readingStatsService,
         CancellationToken cancellationToken) =>
         await readingStatsService.GetTimeBucketsAsync(input, cancellationToken);
+
+    public async Task<IReadOnlyList<LocationSeriesModel>> GetReadingSeriesAsync(
+        ReadingStatsModel input,
+        IReadingStatsService readingStatsService,
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? locations = null) =>
+        await readingStatsService.GetLocationSeriesAsync(input, locations, cancellationToken);
 
     public async Task<IReadOnlyList<LocationStatModel>> GetLocationStatsAsync(
         DateTimeOffset from,

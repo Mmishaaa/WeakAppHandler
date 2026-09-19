@@ -1,5 +1,3 @@
-#Requires -Version 7
-
 # Writes the current GraphQL schema next to the solution so the frontend can generate types from
 # it. No database is needed: building the schema never opens a connection.
 

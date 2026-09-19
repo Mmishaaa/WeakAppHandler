@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Options;
-using NotificationService.BLL.Configuration;
 using NotificationService.BLL.Models;
 using NotificationService.BLL.Notifications;
+using Shared.Configuration;
 
 namespace NotificationService.BLL.Services;
 
-public sealed class NotificationDispatchService(IOptionsMonitor<NotificationOptions> options)
+public sealed class NotificationDispatchService(IOptionsMonitor<ThresholdOptions> options)
     : INotificationDispatchService
 {
     public NotificationDispatchModel Dispatch(IReadOnlyList<ReadingNotificationModel> readings)
@@ -65,7 +65,7 @@ public sealed class NotificationDispatchService(IOptionsMonitor<NotificationOpti
     {
         var thresholds = new Dictionary<string, MetricThresholdOptions>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var threshold in options.CurrentValue.Thresholds)
+        foreach (var threshold in options.CurrentValue.Metrics)
         {
             thresholds[threshold.MetricCode] = threshold;
         }
