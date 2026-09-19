@@ -35,7 +35,7 @@ sealed partial class MeterIngestionWorker
 
     [LoggerMessage(
         EventId = 5,
-        Level = LogLevel.Information,
+        Level = LogLevel.Debug,
         Message = "{Location} / {MeterType} / {MetricCode} = {Value}")]
     private static partial void LogNumericMetric(
         ILogger logger,
@@ -46,7 +46,7 @@ sealed partial class MeterIngestionWorker
 
     [LoggerMessage(
         EventId = 6,
-        Level = LogLevel.Information,
+        Level = LogLevel.Debug,
         Message = "{Location} / {MeterType} / {MetricCode} = {Value}")]
     private static partial void LogBooleanMetric(
         ILogger logger,
@@ -66,4 +66,10 @@ sealed partial class MeterIngestionWorker
         Level = LogLevel.Error,
         Message = "An unhandled exception occurred during WeakApp polling")]
     private static partial void LogPollError(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 9,
+        Level = LogLevel.Warning,
+        Message = "WeakApp poll succeeded in {DurationMs} ms but yielded no usable readings from {MeterCount} meters")]
+    private static partial void LogPollEmpty(ILogger logger, int durationMs, int meterCount);
 }

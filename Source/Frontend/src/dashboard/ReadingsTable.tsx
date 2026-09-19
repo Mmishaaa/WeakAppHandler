@@ -18,16 +18,16 @@ const firstPage: Cursor = { after: null, before: null }
 
 interface ReadingsTableProps {
   filter: ReadingFilterModelInput
+  scope: string
   dataVersion: number
 }
 
-export const ReadingsTable = ({ filter, dataVersion }: ReadingsTableProps) => {
-  const filterKey = JSON.stringify(filter)
-  const [pageKey, setPageKey] = useState(filterKey)
+export const ReadingsTable = ({ filter, scope, dataVersion }: ReadingsTableProps) => {
+  const [pageKey, setPageKey] = useState(scope)
   const [cursor, setCursor] = useState<Cursor>(firstPage)
 
-  if (pageKey !== filterKey) {
-    setPageKey(filterKey)
+  if (pageKey !== scope) {
+    setPageKey(scope)
     setCursor(firstPage)
   }
 

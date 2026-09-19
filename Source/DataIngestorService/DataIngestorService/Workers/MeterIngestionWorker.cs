@@ -72,6 +72,12 @@ sealed partial class MeterIngestionWorker(
 
         var readings = MeterPayloadParser.ParseAll(result.Meters);
 
+        if (readings.Count == 0)
+        {
+            LogPollEmpty(logger, durationMs, result.Meters.Count);
+            return;
+        }
+
         LogPollSucceeded(logger, durationMs, result.Meters.Count, readings.Count);
 
         foreach (var reading in readings)

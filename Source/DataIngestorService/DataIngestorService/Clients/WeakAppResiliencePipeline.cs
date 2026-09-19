@@ -21,13 +21,13 @@ static class WeakAppResiliencePipeline
             UseJitter = true,
             Delay = BaseDelay,
             ShouldRetryAfterHeader = true,
-            ShouldHandle = static args => ValueTask.FromResult(IsTransient(args.Outcome)),
+            ShouldHandle = static args => ValueTask.FromResult(ShouldRetry(args.Outcome)),
         });
 
         builder.AddTimeout(TimeSpan.FromSeconds(options.AttemptTimeoutSeconds));
     }
 
-    private static bool IsTransient(Outcome<HttpResponseMessage> outcome)
+    private static bool ShouldRetry(Outcome<HttpResponseMessage> outcome)
     {
         if (outcome.Exception is HttpRequestException or IOException or TimeoutRejectedException)
         {
@@ -39,6 +39,11 @@ static class WeakAppResiliencePipeline
             return false;
         }
 
-        return (int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.TooManyRequests;
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            return false;
+        }
+
+        return (int)response.StatusCode >= 500;
     }
 }

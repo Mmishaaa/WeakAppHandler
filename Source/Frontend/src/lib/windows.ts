@@ -25,8 +25,20 @@ export interface WindowRange {
   bucket: TimeBucket
 }
 
-export const resolveWindow = (window: TimeWindow, now: number): WindowRange => ({
-  from: new Date(now - window.hours * 3_600_000).toISOString(),
-  to: new Date(now + 60_000).toISOString(),
-  bucket: window.bucket,
-})
+const hourMs = 3_600_000
+
+const bucketMs: Record<TimeBucket, number> = {
+  HOUR: hourMs,
+  DAY: 24 * hourMs,
+}
+
+export const resolveWindow = (window: TimeWindow, now: number): WindowRange => {
+  const step = bucketMs[window.bucket]
+  const to = Math.floor(now / step) * step + step
+
+  return {
+    from: new Date(to - window.hours * hourMs).toISOString(),
+    to: new Date(to).toISOString(),
+    bucket: window.bucket,
+  }
+}

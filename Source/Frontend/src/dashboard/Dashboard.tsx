@@ -112,7 +112,11 @@ export const Dashboard = () => {
           />
         </div>
 
-        <ReadingsTable filter={readingsFilter} dataVersion={dataVersion} />
+        <ReadingsTable
+          filter={readingsFilter}
+          scope={`${filters.location ?? ''}|${metricCode ?? ''}|${filters.windowKey}`}
+          dataVersion={dataVersion}
+        />
       </main>
     </>
   )

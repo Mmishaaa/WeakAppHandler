@@ -1,4 +1,6 @@
 :root {
+  color-scheme: light;
+
   --plane: #f1f0ec;
   --surface: #fcfcfb;
   --surface-sunk: #f6f5f2;
@@ -22,6 +24,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    color-scheme: dark;
+
     --plane: #0d0d0d;
     --surface: #1a1a19;
     --surface-sunk: #151514;
@@ -42,6 +46,8 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
+
   --plane: #0d0d0d;
   --surface: #1a1a19;
   --surface-sunk: #151514;
@@ -153,6 +159,12 @@ select {
   font-size: 13px;
   outline: none;
   max-width: 150px;
+}
+
+.field select option,
+.control option {
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .field:focus-within {

@@ -77,6 +77,30 @@ package the app uses serves the OpenAPI document as JSON only.
 
 From inside the `backend` network the service is reachable as `http://weakapp:8080`.
 
+### How the ingestor survives it
+
+WeakApp allows ten requests per rolling forty-second window. Polling every ten seconds spends
+four of those on the happy path, which leaves room for the retries the API's deliberate failures
+make necessary.
+
+Server errors, network faults and timeouts are retried twice with exponential backoff and
+jitter, so a failing poll costs at most three of the ten. `429` is not retried at all.
+
+That last part is deliberate. WeakApp answers a rate limit with `Retry-After: 1`, and honouring
+it inside the poll turns one rejected call into several within a few seconds — precisely when
+the server has asked for fewer. Because the window slides, the budget then never refills: every
+poll keeps topping it up faster than it drains, and the ingestor serves nothing but `429` until
+it is restarted. A poll is idempotent and comes round again on the ten-second tick, which is a
+longer wait than the server asks for anyway, so the tick is the backoff and a rate-limited poll
+is simply abandoned.
+
+Both numbers live in `WeakApp` configuration, so the budget can be re-cut without a rebuild if
+the third-party limits change.
+
+A poll that returns meters whose payloads all fail to parse publishes nothing. Empty batches
+would otherwise travel through the broker only to be rejected by the consumer as
+`reading_batch.empty`.
+
 ## Database roles
 
 Two roles, split by what each service is allowed to do.
