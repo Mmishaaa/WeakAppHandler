@@ -96,6 +96,8 @@ sealed partial class MeterIngestionWorker(
     {
         var batchId = NewId.NextGuid();
 
+        using var batchScope = Serilog.Context.LogContext.PushProperty("BatchId", batchId);
+
         var message = new MeterReadingsCaptured(
             batchId,
             DateTimeOffset.UtcNow,

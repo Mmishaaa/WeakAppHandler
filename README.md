@@ -101,6 +101,37 @@ A poll that returns meters whose payloads all fail to parse publishes nothing. E
 would otherwise travel through the broker only to be rejected by the consumer as
 `reading_batch.empty`.
 
+## Logging
+
+Serilog, wired once in `Shared/Logging` and switched on by a single line in each service's
+`AddApi`. The setup clears the default providers first, so nothing is written twice, and opens
+the Microsoft.Extensions.Logging filter all the way to `Trace` — otherwise it would cut messages
+before Serilog ever sees them, and the levels would be configured in two places that disagree.
+Levels live under `Serilog:MinimumLevel` in `appsettings.json`.
+
+Every line carries the service it came from, and consumers push the identifiers of the work they
+are doing onto the log context:
+
+```csharp
+using var batchScope = LogContext.PushProperty("BatchId", message.BatchId);
+using var messageScope = LogContext.PushProperty("MessageId", messageId);
+```
+
+Everything logged while that scope is open inherits both, including framework messages the code
+never touches. A batch can therefore be followed across three services by one identifier: the
+ingestor publishes it, the processor stores it, the notification service broadcasts it.
+
+The console template ends with `{Properties:j}`, which prints those attached values as JSON. The
+structure is in the events themselves, so pointing the sink at a log store is a change of sink,
+not of code — swapping the `outputTemplate` argument for `"formatter":
+"Serilog.Formatting.Compact.CompactJsonFormatter, Serilog.Formatting.Compact"` emits newline-
+delimited JSON instead.
+
+`UseSerilogRequestLogging` is enabled on the processor and the gateway, where it collapses the
+framework's several lines per request into one with the route, status code and duration. The
+ingestor has no client traffic and the notification service holds long-lived connections, so
+neither gains anything from it.
+
 ## Database roles
 
 Two roles, split by what each service is allowed to do.

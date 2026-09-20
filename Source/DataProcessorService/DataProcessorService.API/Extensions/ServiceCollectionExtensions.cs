@@ -3,6 +3,7 @@ using DataProcessorService.BLL.Extensions;
 using DataProcessorService.DAL;
 using MassTransit;
 using Shared.Extensions;
+using Shared.Logging;
 using Shared.Messaging;
 
 namespace DataProcessorService.API.Extensions;
@@ -17,6 +18,7 @@ static class ServiceCollectionExtensions
     {
         public IServiceCollection AddApi(IConfiguration configuration)
         {
+            services.AddSerilogLogging(configuration, "DataProcessorService");
             services.AddOpenApi();
             services.AddGlobalExceptionHandling();
             services.AddBll(configuration);

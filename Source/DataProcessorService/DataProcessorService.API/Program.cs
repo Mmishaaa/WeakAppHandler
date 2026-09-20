@@ -3,6 +3,7 @@ using DataProcessorService.API.Extensions;
 using DataProcessorService.DAL;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using Serilog;
 using Shared.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +13,7 @@ builder.Services.AddApi(builder.Configuration);
 var app = builder.Build();
 
 app.UseGlobalExceptionHandling();
+app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {

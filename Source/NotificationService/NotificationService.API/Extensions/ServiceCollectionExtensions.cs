@@ -4,6 +4,7 @@ using NotificationService.API.Configuration;
 using NotificationService.API.Consumers;
 using NotificationService.BLL.Extensions;
 using Shared.Extensions;
+using Shared.Logging;
 using Shared.Messaging;
 
 namespace NotificationService.API.Extensions;
@@ -18,6 +19,7 @@ static class ServiceCollectionExtensions
     {
         public IServiceCollection AddApi(IConfiguration configuration)
         {
+            services.AddSerilogLogging(configuration, "NotificationService");
             services.AddGlobalExceptionHandling();
             services.AddSignalR()
                 .AddJsonProtocol(json =>

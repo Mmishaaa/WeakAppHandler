@@ -17,6 +17,8 @@ sealed partial class MeterReadingsStoredConsumer(
     {
         var message = context.Message;
 
+        using var batchScope = Serilog.Context.LogContext.PushProperty("BatchId", message.BatchId);
+
         var dispatch = notificationDispatchService.Dispatch(ToNotificationModels(message));
 
         foreach (var envelope in dispatch.Envelopes)

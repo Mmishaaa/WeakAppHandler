@@ -17,6 +17,9 @@ sealed partial class MeterReadingsCapturedConsumer(
 
         var messageId = context.MessageId ?? message.BatchId;
 
+        using var batchScope = Serilog.Context.LogContext.PushProperty("BatchId", message.BatchId);
+        using var messageScope = Serilog.Context.LogContext.PushProperty("MessageId", messageId);
+
         var result = await readingBatchService.WriteAsync(
             ToBatchModel(messageId, message),
             context.CancellationToken);

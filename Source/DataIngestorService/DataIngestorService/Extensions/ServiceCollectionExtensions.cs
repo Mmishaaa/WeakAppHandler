@@ -3,6 +3,7 @@ using DataIngestorService.Configuration;
 using DataIngestorService.Workers;
 using Microsoft.Extensions.Options;
 using Shared.Extensions;
+using Shared.Logging;
 using Shared.Messaging;
 
 namespace DataIngestorService.Extensions;
@@ -16,6 +17,7 @@ static class ServiceCollectionExtensions
     {
         public IServiceCollection AddApi(IConfiguration configuration)
         {
+            services.AddSerilogLogging(configuration, "DataIngestorService");
             services.AddOpenApi();
             services.AddGlobalExceptionHandling();
 
