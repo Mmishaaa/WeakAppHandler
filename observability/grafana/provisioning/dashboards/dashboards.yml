@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: WeakAppHandler
+    type: file
+    folder: WeakAppHandler
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

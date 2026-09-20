@@ -11,6 +11,7 @@ var app = builder.Build();
 app.UseGlobalExceptionHandling();
 app.UseSerilogRequestLogging();
 
+app.MapPrometheusScrapingEndpoint();
 app.MapGraphQL();
 
 app.RunWithGraphQLCommands(args);

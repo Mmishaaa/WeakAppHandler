@@ -1,0 +1,23 @@
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+# The services push OTLP over gRPC on 4317; 4318 is here for anything that speaks HTTP.
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+# Tempo 3.0 dropped the top-level ingester and compactor sections; block size and
+# retention stay on their defaults.
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal

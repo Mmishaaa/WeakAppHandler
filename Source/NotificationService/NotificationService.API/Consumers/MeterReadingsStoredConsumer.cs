@@ -2,14 +2,17 @@ using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using NotificationService.API.Hubs;
 using NotificationService.BLL.Models;
+using NotificationService.BLL.Notifications;
 using NotificationService.BLL.Services;
 using Shared.MessageContracts;
+using Shared.Telemetry;
 
 namespace NotificationService.API.Consumers;
 
 sealed partial class MeterReadingsStoredConsumer(
     INotificationDispatchService notificationDispatchService,
     IHubContext<ReadingsHub, IReadingsClient> hubContext,
+    IngestionMetrics metrics,
     ILogger<MeterReadingsStoredConsumer> logger)
     : IConsumer<MeterReadingsStored>
 {
@@ -33,12 +36,30 @@ sealed partial class MeterReadingsStoredConsumer(
             }
         }
 
+        RecordAlerts(dispatch);
+
         LogBatchBroadcast(
             logger,
             message.BatchId,
             dispatch.ReadingCount,
             dispatch.AlertCount,
             dispatch.Envelopes.Count);
+    }
+
+    private void RecordAlerts(NotificationDispatchModel dispatch)
+    {
+        var raised = dispatch.Envelopes
+            .FirstOrDefault(envelope => envelope.Group == NotificationGroups.All)?.Alerts;
+
+        if (raised is null)
+        {
+            return;
+        }
+
+        foreach (var group in raised.GroupBy(alert => alert.Kind))
+        {
+            metrics.AlertsRaised(group.Key.ToString(), group.Count());
+        }
     }
 
     private static List<ReadingNotificationModel> ToNotificationModels(MeterReadingsStored message) =>

@@ -1,0 +1,11 @@
+apiVersion: 1
+
+# No uid on purpose: Grafana 13 fails to provision a datasource that declares one
+# (grafana/grafana#110740), and the failure takes the whole server down. The dashboard
+# leaves its panels on the default datasource instead of naming one.
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true

@@ -7,7 +7,8 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-That brings up everything: the third-party API, RabbitMQ, PostgreSQL, pgAdmin and all four services.
+That brings up everything: the third-party API, RabbitMQ, PostgreSQL, pgAdmin, the
+observability stack (Prometheus, Loki, Tempo, Grafana) and all four services.
 `docker compose ps` shows the state of each; the first build takes a few minutes.
 
 If a PostgreSQL volume is left over from an earlier run, wipe it first:
@@ -32,6 +33,10 @@ for the gateway.
 | GraphQL Gateway / Nitro IDE | http://localhost:5243/graphql |
 | Notification Service / test client | http://localhost:5244 |
 | Dashboard | http://localhost:5180 |
+| Prometheus | http://localhost:9090 |
+| Loki | http://localhost:3100 |
+| Tempo | http://localhost:3200 |
+| Grafana | http://localhost:3000 (admin/admin) |
 
 Startup order is handled by health checks: the ingestor waits for WeakApp and the broker, the
 processor for the broker and the database, the notification service for the broker. The
@@ -131,6 +136,71 @@ delimited JSON instead.
 framework's several lines per request into one with the route, status code and duration. The
 ingestor has no client traffic and the notification service holds long-lived connections, so
 neither gains anything from it.
+
+## Metrics
+
+Every service exports OpenTelemetry metrics on `/metrics` in Prometheus format. `docker compose up`
+brings up the two pieces that consume them:
+
+| | Address | Credentials |
+|---|---|---|
+| Prometheus | <http://localhost:9090> | none |
+| Grafana | <http://localhost:3000> | `admin` / `admin`, anonymous viewing is on |
+
+Grafana arrives provisioned — the three datasources and the **WeakAppHandler overview**
+dashboard are all read from `observability/` at startup, so there is nothing to import by hand.
+
+Three layers of metrics are exported:
+
+- **Auto-instrumented**: inbound requests (`http.server.request.duration`), outbound HTTP
+  (`http.client.request.duration`), and the .NET runtime.
+- **Library meters**: `MassTransit` for queue consume rates and faults, `Npgsql` for connection
+  pool and command counts.
+- **Domain counters**, defined in `Shared/Telemetry/IngestionMetrics.cs`:
+
+| Metric | Tags | Recorded by |
+|---|---|---|
+| `weakapphandler.readings.ingested` | `meter_type` | the ingestor, once a batch is on the queue |
+| `weakapphandler.readings.stored` | — | the processor, after the transaction commits |
+| `weakapphandler.batches.duplicate` | — | the processor, when a redelivered message is skipped |
+| `weakapphandler.alerts.raised` | `kind` | the notification service, per threshold breach |
+
+The exporter renames these on the way out: dots become underscores and counters gain `_total`, so
+`weakapphandler.readings.ingested` is queried as `weakapphandler_readings_ingested_total`.
+
+The dashboard's most useful panel is **WeakApp responses** — outbound calls from the ingestor
+broken down by status code. That is where the rate limiter becomes visible: a run that stays on
+`200` is healthy, a climbing `429` line means the poll budget described above is being exceeded.
+
+## Logs and traces
+
+The same `observability/` folder brings up two more stores, and Grafana is provisioned against
+both:
+
+| | What lands there | Queried in Grafana as |
+|---|---|---|
+| Loki | every Serilog event from all four services | the **Loki** datasource |
+| Tempo | OpenTelemetry spans: inbound requests, outbound HTTP, PostgreSQL commands, MassTransit publish and consume | the **Tempo** datasource |
+
+**Logs.** The Loki sink is a second Serilog sink beside the console one, configured in each
+`appsettings.json`; compose points it at `http://loki:3100`. Console output is kept, so
+`docker compose logs` still works. `Application` becomes a Loki label, so
+`{Application="DataIngestorService"}` narrows to one service; everything else Serilog attaches
+— `BatchId`, `MessageId`, `TraceId` — travels as structured metadata and is filterable with
+`| json`.
+
+**Traces.** Tracing is switched on by `Telemetry:OtlpEndpoint`. When it is unset the exporter is
+never registered, so running a service from the IDE without the stack up costs nothing; compose
+sets it to `http://tempo:4317`. A trace follows one WeakApp poll from the ingestor's HTTP call,
+through the RabbitMQ hop, into the processor's `INSERT`, and on to the notification fan-out,
+because MassTransit propagates the trace context through the message headers.
+
+**Correlation.** `ActivityEnricher` in `Shared/Logging` puts the current `TraceId` and `SpanId`
+on every log event, so a log line and the trace it belongs to carry the same identifier. To jump
+from one to the other, copy the `TraceId` out of the log and paste it into Tempo's **TraceQL**
+search. The datasources deliberately declare no `uid` — Grafana 13 refuses to provision a
+datasource that has one, and the failure takes the whole server down — which is also why the
+usual click-through link between them is not wired up.
 
 ## Tests
 

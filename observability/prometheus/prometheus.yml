@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Every service listens on 8080 inside the backend network and exposes the
+  # OpenTelemetry Prometheus exporter at /metrics.
+  - job_name: weakapphandler
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ingestor:8080"]
+        labels:
+          service: ingestor
+      - targets: ["processor:8080"]
+        labels:
+          service: processor
+      - targets: ["gateway:8080"]
+        labels:
+          service: gateway
+      - targets: ["notifications:8080"]
+        labels:
+          service: notifications
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

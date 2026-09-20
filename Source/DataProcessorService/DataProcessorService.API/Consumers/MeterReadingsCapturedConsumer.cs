@@ -3,11 +3,13 @@ using DataProcessorService.BLL.Results;
 using DataProcessorService.BLL.Services;
 using MassTransit;
 using Shared.MessageContracts;
+using Shared.Telemetry;
 
 namespace DataProcessorService.API.Consumers;
 
 sealed partial class MeterReadingsCapturedConsumer(
     IReadingBatchService readingBatchService,
+    IngestionMetrics metrics,
     ILogger<MeterReadingsCapturedConsumer> logger)
     : IConsumer<MeterReadingsCaptured>
 {
@@ -34,12 +36,14 @@ sealed partial class MeterReadingsCapturedConsumer(
 
         if (write.Outcome == BatchWriteResult.Duplicate)
         {
+            metrics.BatchDuplicated();
             LogBatchDuplicate(logger, message.BatchId, messageId);
             return;
         }
 
         await context.Publish(ToStoredEvent(message.BatchId, write), context.CancellationToken);
 
+        metrics.ReadingsStored(write.Readings.Count);
         LogBatchStored(logger, message.BatchId, write.Readings.Count);
     }
 

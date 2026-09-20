@@ -9,6 +9,8 @@ var app = builder.Build();
 
 app.UseGlobalExceptionHandling();
 
+app.MapPrometheusScrapingEndpoint();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
                 .ReadFrom.Configuration(configuration)
                 .ReadFrom.Services(provider)
                 .Enrich.FromLogContext()
+                .Enrich.With<ActivityEnricher>()
                 .Enrich.WithProperty("Application", application));
 
             return services;

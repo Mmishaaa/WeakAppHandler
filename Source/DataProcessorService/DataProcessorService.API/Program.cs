@@ -15,6 +15,8 @@ var app = builder.Build();
 app.UseGlobalExceptionHandling();
 app.UseSerilogRequestLogging();
 
+app.MapPrometheusScrapingEndpoint();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

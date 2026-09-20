@@ -15,6 +15,7 @@ app.UseStaticFiles();
 
 app.UseCors();
 
+app.MapPrometheusScrapingEndpoint();
 app.MapHub<ReadingsHub>("/hubs/readings");
 
 await app.RunAsync();

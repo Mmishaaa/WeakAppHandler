@@ -5,6 +5,7 @@ using GraphQlGateway.BLL.Extensions;
 using GraphQlGateway.DAL;
 using Shared.Extensions;
 using Shared.Logging;
+using Shared.Telemetry;
 
 namespace GraphQlGateway.API.Extensions;
 
@@ -15,6 +16,7 @@ static class WebApplicationBuilderExtensions
         public WebApplicationBuilder AddApi()
         {
             builder.Services.AddSerilogLogging(builder.Configuration, "GraphQlGateway");
+            builder.Services.AddTelemetry(builder.Configuration, "GraphQlGateway");
             builder.Services.AddGlobalExceptionHandling();
             builder.Services.AddBll(builder.Configuration);
 

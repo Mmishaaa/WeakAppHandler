@@ -6,12 +6,14 @@ using DataIngestorService.Parsing;
 using MassTransit;
 using Microsoft.Extensions.Options;
 using Shared.MessageContracts;
+using Shared.Telemetry;
 
 namespace DataIngestorService.Workers;
 
 sealed partial class MeterIngestionWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<WeakAppOptions> options,
+    IngestionMetrics metrics,
     ILogger<MeterIngestionWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -104,6 +106,11 @@ sealed partial class MeterIngestionWorker(
             [.. readings.Select(ToDto)]);
 
         await publishEndpoint.Publish(message, cancellationToken);
+
+        foreach (var group in readings.GroupBy(reading => reading.MeterType, StringComparer.Ordinal))
+        {
+            metrics.ReadingsIngested(group.Key, group.Count());
+        }
 
         LogBatchPublished(logger, batchId, message.Readings.Count);
     }
