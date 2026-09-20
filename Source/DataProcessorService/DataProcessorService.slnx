@@ -3,4 +3,5 @@
   <Project Path="DataProcessorService.BLL/DataProcessorService.BLL.csproj" />
   <Project Path="DataProcessorService.DAL/DataProcessorService.DAL.csproj" />
   <Project Path="../Shared/Shared.csproj" />
+  <Project Path="DataProcessorService.Tests/DataProcessorService.Tests.csproj" />
 </Solution>

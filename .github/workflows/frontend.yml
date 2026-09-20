@@ -1,0 +1,73 @@
+name: Frontend
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'Source/Frontend/**'
+      - 'Source/GraphQlGateway/schema.graphql'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    paths:
+      - 'Source/Frontend/**'
+      - 'Source/GraphQlGateway/schema.graphql'
+      - '.github/workflows/frontend.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: Source/Frontend
+
+jobs:
+  build:
+    name: Build, lint, test and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      # The Yarn release is pinned by packageManager in package.json; Corepack
+      # installs exactly that one instead of whatever ships with the runner.
+      - name: Enable Corepack
+        run: corepack enable
+        working-directory: .
+
+      - name: Restore the Yarn cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            Source/Frontend/.yarn/cache
+            Source/Frontend/.yarn/install-state.gz
+          key: yarn-${{ runner.os }}-${{ hashFiles('Source/Frontend/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      # --immutable fails instead of rewriting the lockfile, so CI can never
+      # silently resolve a different dependency graph than the one committed.
+      - name: Install the dependencies
+        run: yarn install --immutable
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Type-check and build
+        run: yarn build
+
+      - name: Test
+        run: yarn test
+
+      # The committed GraphQL types must match the gateway schema; regenerating
+      # them here turns a stale schema into a failed build rather than a runtime error.
+      - name: Verify the generated GraphQL types are current
+        run: |
+          yarn codegen
+          git diff --exit-code -- src/gql
+
+      - name: Build the Docker image
+        run: docker build --tag weakapphandler/frontend:${{ github.sha }} Source/Frontend
+        working-directory: .

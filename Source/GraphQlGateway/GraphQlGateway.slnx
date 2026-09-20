@@ -3,4 +3,5 @@
   <Project Path="GraphQlGateway.BLL/GraphQlGateway.BLL.csproj" />
   <Project Path="GraphQlGateway.DAL/GraphQlGateway.DAL.csproj" />
   <Project Path="../Shared/Shared.csproj" />
+  <Project Path="GraphQlGateway.Tests/GraphQlGateway.Tests.csproj" />
 </Solution>

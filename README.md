@@ -132,6 +132,75 @@ framework's several lines per request into one with the route, status code and d
 ingestor has no client traffic and the notification service holds long-lived connections, so
 neither gains anything from it.
 
+## Tests
+
+One test project per service, so each maps onto its own pipeline.
+
+```powershell
+dotnet test Source\DataIngestorService\DataIngestorService.slnx
+dotnet test Source\DataProcessorService\DataProcessorService.slnx
+dotnet test Source\GraphQlGateway\GraphQlGateway.slnx
+dotnet test Source\NotificationService\NotificationService.slnx
+
+cd Source\Frontend; yarn test
+```
+
+xUnit with AwesomeAssertions and Moq; Vitest on the frontend. What is covered is deliberately the
+behaviour that actually broke while the project was being built, so the suite is a record of the
+bugs rather than a coverage number:
+
+| Where | What it pins down |
+|-------|-------------------|
+| `MeterPayloadParserTests` | truncated, empty and wrongly typed payloads yield no readings instead of throwing |
+| `WeakAppResiliencePipelineTests` | `429` is not retried even when `Retry-After` is present, `5xx` and transport faults are |
+| `ReadingBatchServiceTests` | a redelivered batch writes nothing, a known meter is reused, every reading takes the batch's capture time |
+| `ReadingStatsServiceTests` | the bucket size reaches the database instead of being rolled in memory, and threshold state is decided server-side |
+| `NotificationDispatchServiceTests` | the fan-out covers all four group shapes, and an alert reaches every group that sees its reading |
+| `windows.test.ts` | window bounds snap to bucket boundaries and hold steady between them, so an idle tab issues no queries |
+| `format.test.ts` | numbers, units and timestamps render the same way whatever the reading carries |
+
+The resilience pipeline is exercised through Polly itself rather than through a stubbed
+`HttpClient`, so the test drives the same configuration the service runs.
+
+### Integration tests
+
+Two suites talk to a real PostgreSQL, started and thrown away per run by
+[Testcontainers](https://dotnet.testcontainers.org/). They need a running Docker daemon and nothing
+else — no connection string, no seeded database, no `docker compose up` beforehand. Without Docker
+these tests fail to start; the unit tests in the same projects are unaffected.
+
+| Where | What it pins down |
+|-------|-------------------|
+| `ReadingBatchServiceDatabaseTests` | the migrations apply cleanly, the transaction commits readings and meters together, and a redelivered message leaves the row count where it was |
+| `ReadingRepositoryDatabaseTests` | every aggregate really is computed by PostgreSQL: hourly and daily bucketing, grouping by location and by meter type, `ORDER BY AVG(...) DESC`, the boolean `trueCount` / `trueShare` pair, and the latest-per-meter join |
+
+The gateway builds its schema with `EnsureCreated`, because it owns no migrations — it reads the
+tables the processor owns. The processor's fixture runs `Migrate`, so a migration that does not
+apply fails the suite rather than production.
+
+## Continuous integration
+
+One workflow per service plus one for the frontend, under `.github/workflows/`. Each is scoped by
+`paths`, so a change to the gateway does not rebuild the ingestor, and each runs the same four
+stages: lint, build, test, Docker image.
+
+| Workflow | Lint | Build | Test | Image |
+|----------|------|-------|------|-------|
+| `data-ingestor-service.yml` | `dotnet format --verify-no-changes` | `dotnet build -c Release` | `dotnet test` | root-context `docker build` |
+| `data-processor-service.yml` | same | same | unit + Testcontainers | same |
+| `graphql-gateway.yml` | same | same | unit + Testcontainers | same |
+| `notification-service.yml` | same | same | `dotnet test` | same |
+| `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) | `docker build Source/Frontend` |
+
+Analyzer violations do not need their own stage: `Directory.Build.props` sets
+`TreatWarningsAsErrors`, so the build step fails on them. The frontend pipeline additionally reruns
+`yarn codegen` and fails on a diff, which turns a schema the committed GraphQL types no longer match
+into a red build instead of a runtime error.
+
+Both package caches are keyed off the files that decide them — `Directory.Packages.props` for NuGet,
+`yarn.lock` for Yarn — and `yarn install --immutable` refuses to resolve anything the lockfile does
+not already pin.
+
 ## Database roles
 
 Two roles, split by what each service is allowed to do.
