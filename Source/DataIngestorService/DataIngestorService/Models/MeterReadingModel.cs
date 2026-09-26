@@ -1,6 +1,6 @@
 namespace DataIngestorService.Models;
 
-sealed record MeterReadingModel(
+internal sealed record MeterReadingModel(
     string Location,
     string MeterType,
     string MetricCode,

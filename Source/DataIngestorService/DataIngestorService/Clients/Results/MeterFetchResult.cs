@@ -2,7 +2,7 @@ using DataIngestorService.Contracts;
 
 namespace DataIngestorService.Clients.Results;
 
-sealed record MeterFetchResult
+internal sealed record MeterFetchResult
 {
     public required PollOutcome Outcome { get; init; }
 

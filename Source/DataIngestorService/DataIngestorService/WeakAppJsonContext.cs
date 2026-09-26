@@ -6,4 +6,4 @@ namespace DataIngestorService;
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(List<WeakAppMeterDto>))]
-sealed partial class WeakAppJsonContext : JsonSerializerContext;
+internal sealed partial class WeakAppJsonContext : JsonSerializerContext;

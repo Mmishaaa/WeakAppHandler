@@ -114,8 +114,14 @@ public class NotificationDispatchServiceTests
     public void Dispatch_IgnoresBooleanReadings_BecauseTheyHaveNothingToCompare()
     {
         var reading = new ReadingNotificationModel(
-            1, Guid.NewGuid(), "Bedroom", "motion", "motion_detected",
-            DateTimeOffset.UtcNow, Numeric: null, Flag: true);
+            1,
+            Guid.NewGuid(),
+            "Bedroom",
+            "motion",
+            "motion_detected",
+            DateTimeOffset.UtcNow,
+            Numeric: null,
+            Flag: true);
 
         Create().Dispatch([reading]).AlertCount.Should().Be(0);
     }

@@ -19,7 +19,7 @@ public static class ReadingProjections
             Flag = reading.ValueBool,
         };
 
-    private static readonly Func<DbReading, ReadingModel> Map = Projection.Compile();
+    private static Func<DbReading, ReadingModel> Map { get; } = Projection.Compile();
 
     extension(IQueryable<DbReading> readings)
     {

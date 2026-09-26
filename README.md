@@ -191,9 +191,12 @@ both:
 
 **Traces.** Tracing is switched on by `Telemetry:OtlpEndpoint`. When it is unset the exporter is
 never registered, so running a service from the IDE without the stack up costs nothing; compose
-sets it to `http://tempo:4317`. A trace follows one WeakApp poll from the ingestor's HTTP call,
-through the RabbitMQ hop, into the processor's `INSERT`, and on to the notification fan-out,
-because MassTransit propagates the trace context through the message headers.
+sets it to `http://tempo:4317`. Every poll opens a `weakapp.poll` root span in the ingestor,
+tagged with its outcome, meter and reading counts and the batch id. The HTTP attempts and the
+publish are its children, and MassTransit propagates the trace context through the message
+headers, so one trace follows a poll from the ingestor's HTTP call, through the RabbitMQ hop,
+into the processor's `INSERT`, and on to the notification fan-out. Log lines written during the
+poll carry the same `TraceId`.
 
 **Correlation.** `ActivityEnricher` in `Shared/Logging` puts the current `TraceId` and `SpanId`
 on every log event, so a log line and the trace it belongs to carry the same identifier. To jump

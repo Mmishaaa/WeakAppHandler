@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Project files first, so restore is cached until a dependency actually changes.
-COPY Directory.Build.props Directory.Packages.props nuget.config ./
+COPY Directory.Build.props Directory.Packages.props nuget.config .editorconfig stylecop.json ./
 COPY Source/Shared/Shared.csproj Source/Shared/
 COPY Source/NotificationService/NotificationService.API/NotificationService.API.csproj Source/NotificationService/NotificationService.API/
 COPY Source/NotificationService/NotificationService.BLL/NotificationService.BLL.csproj Source/NotificationService/NotificationService.BLL/

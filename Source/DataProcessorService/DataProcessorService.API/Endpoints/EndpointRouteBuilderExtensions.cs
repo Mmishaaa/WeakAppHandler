@@ -8,7 +8,7 @@ using Shared.Results;
 
 namespace DataProcessorService.API.Endpoints;
 
-static class EndpointRouteBuilderExtensions
+internal static class EndpointRouteBuilderExtensions
 {
     extension(IEndpointRouteBuilder endpoints)
     {
@@ -83,18 +83,16 @@ static class EndpointRouteBuilderExtensions
             new MeterReadingsCaptured(
                 batchId,
                 capturedAt,
-                [.. readings.Select(reading => new MeterReadingDto(
-                    reading.Location!,
-                    reading.MeterType!,
-                    reading.MetricCode!,
-                    reading.Numeric,
-                    reading.Flag))]),
+                [.. readings.Select(ToDto)]),
             cancellationToken);
 
         return TypedResults.Accepted(
             (string?)null,
             new SubmitReadingsResponse(batchId, capturedAt, readings.Count));
     }
+
+    private static MeterReadingDto ToDto(SubmitReadingRequest reading) =>
+        new(reading.Location!, reading.MeterType!, reading.MetricCode!, reading.Numeric, reading.Flag);
 
     private static Dictionary<string, string[]> Validate(SubmitReadingsRequest request)
     {

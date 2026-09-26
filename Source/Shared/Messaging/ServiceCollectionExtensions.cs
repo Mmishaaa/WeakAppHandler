@@ -29,11 +29,15 @@ public static class ServiceCollectionExtensions
                 {
                     var options = context.GetRequiredService<IOptions<RabbitMqOptions>>().Value;
 
-                    rabbit.Host(options.Host, (ushort)options.Port, options.VirtualHost, host =>
-                    {
-                        host.Username(options.Username);
-                        host.Password(options.Password);
-                    });
+                    rabbit.Host(
+                        options.Host,
+                        (ushort)options.Port,
+                        options.VirtualHost,
+                        host =>
+                        {
+                            host.Username(options.Username);
+                            host.Password(options.Password);
+                        });
 
                     configureTransport?.Invoke(context, rabbit);
 

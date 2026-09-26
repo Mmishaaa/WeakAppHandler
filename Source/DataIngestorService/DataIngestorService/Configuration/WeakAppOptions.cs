@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace DataIngestorService.Configuration;
 
-sealed class WeakAppOptions : IValidatableObject
+internal sealed class WeakAppOptions : IValidatableObject
 {
     public const string SectionName = "WeakApp";
 

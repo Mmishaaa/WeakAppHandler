@@ -9,7 +9,7 @@ using Shared.Telemetry;
 
 namespace DataProcessorService.API.Extensions;
 
-static class ServiceCollectionExtensions
+internal static class ServiceCollectionExtensions
 {
     private const int RetryCount = 3;
 
@@ -25,18 +25,20 @@ static class ServiceCollectionExtensions
             services.AddGlobalExceptionHandling();
             services.AddBll(configuration);
 
-            services.AddRabbitMqMessaging(configuration, bus =>
-            {
-                bus.AddConsumer<MeterReadingsCapturedConsumer>();
-
-                bus.AddEntityFrameworkOutbox<ProcessorDbContext>(outbox => outbox.UsePostgres());
-
-                bus.AddConfigureEndpointsCallback((context, queueName, endpoint) =>
+            services.AddRabbitMqMessaging(
+                configuration,
+                bus =>
                 {
-                    endpoint.UseMessageRetry(retry => retry.Interval(RetryCount, RetryInterval));
-                    endpoint.UseEntityFrameworkOutbox<ProcessorDbContext>(context);
+                    bus.AddConsumer<MeterReadingsCapturedConsumer>();
+
+                    bus.AddEntityFrameworkOutbox<ProcessorDbContext>(outbox => outbox.UsePostgres());
+
+                    bus.AddConfigureEndpointsCallback((context, queueName, endpoint) =>
+                    {
+                        endpoint.UseMessageRetry(retry => retry.Interval(RetryCount, RetryInterval));
+                        endpoint.UseEntityFrameworkOutbox<ProcessorDbContext>(context);
+                    });
                 });
-            });
 
             return services;
         }

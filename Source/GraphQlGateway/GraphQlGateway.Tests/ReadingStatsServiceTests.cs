@@ -45,7 +45,7 @@ public class ReadingStatsServiceTests
                 It.IsAny<Guid?>(),
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync([Bucket("", 2026, 9, 20, 14, count: 6, average: 700m)]);
+            .ReturnsAsync([Bucket(string.Empty, 2026, 9, 20, 14, count: 6, average: 700m)]);
 
         var buckets = await Service().GetTimeBucketsAsync(Input(TimeBucket.Hour), CancellationToken.None);
 
@@ -168,28 +168,6 @@ public class ReadingStatsServiceTests
         snapshot.Select(metric => metric.MetricCode).Should().Equal("co2", "humidity", "pm25");
     }
 
-    private void SetupLatest(params DbReading[] readings) =>
-        _repository
-            .Setup(repository => repository.GetLatestAsync(null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(readings);
-
-    private ReadingStatsService Service()
-    {
-        var options = new ThresholdOptions
-        {
-            Metrics =
-            [
-                new MetricThresholdOptions { MetricCode = "co2", Unit = "ppm", Max = 1000 },
-                new MetricThresholdOptions { MetricCode = "humidity", Unit = "%", Min = 30, Max = 70 },
-            ],
-        };
-
-        var monitor = new Mock<IOptionsMonitor<ThresholdOptions>>();
-        monitor.SetupGet(instance => instance.CurrentValue).Returns(options);
-
-        return new ReadingStatsService(_repository.Object, monitor.Object);
-    }
-
     private static ReadingStatsModel Input(TimeBucket bucket) =>
         new("co2", bucket, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddDays(1), null, null);
 
@@ -217,4 +195,26 @@ public class ReadingStatsServiceTests
             ObservedAt = DateTimeOffset.UnixEpoch,
             ValueNumeric = numeric,
         };
+
+    private void SetupLatest(params DbReading[] readings) =>
+        _repository
+            .Setup(repository => repository.GetLatestAsync(null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readings);
+
+    private ReadingStatsService Service()
+    {
+        var options = new ThresholdOptions
+        {
+            Metrics =
+            [
+                new MetricThresholdOptions { MetricCode = "co2", Unit = "ppm", Max = 1000 },
+                new MetricThresholdOptions { MetricCode = "humidity", Unit = "%", Min = 30, Max = 70 },
+            ],
+        };
+
+        var monitor = new Mock<IOptionsMonitor<ThresholdOptions>>();
+        monitor.SetupGet(instance => instance.CurrentValue).Returns(options);
+
+        return new ReadingStatsService(_repository.Object, monitor.Object);
+    }
 }

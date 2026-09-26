@@ -2,7 +2,7 @@ using DataIngestorService.Clients.Results;
 
 namespace DataIngestorService.Workers;
 
-sealed partial class MeterIngestionWorker
+internal sealed partial class MeterIngestionWorker
 {
     [LoggerMessage(
         EventId = 1,

@@ -7,7 +7,7 @@ using Shared.Telemetry;
 
 namespace DataProcessorService.API.Consumers;
 
-sealed partial class MeterReadingsCapturedConsumer(
+internal sealed partial class MeterReadingsCapturedConsumer(
     IReadingBatchService readingBatchService,
     IngestionMetrics metrics,
     ILogger<MeterReadingsCapturedConsumer> logger)
@@ -52,26 +52,27 @@ sealed partial class MeterReadingsCapturedConsumer(
             messageId,
             message.BatchId,
             message.CapturedAt,
-            [.. message.Readings.Select(reading => new MeterReadingModel(
-                reading.Location,
-                reading.MeterType,
-                reading.MetricCode,
-                reading.Numeric,
-                reading.Flag))]);
+            [.. message.Readings.Select(ToReadingModel)]);
+
+    private static MeterReadingModel ToReadingModel(MeterReadingDto reading) =>
+        new(reading.Location, reading.MeterType, reading.MetricCode, reading.Numeric, reading.Flag);
 
     private static MeterReadingsStored ToStoredEvent(Guid batchId, BatchWriteModel write) =>
         new(
             batchId,
             DateTimeOffset.UtcNow,
-            [.. write.Readings.Select(reading => new StoredMeterReadingDto(
-                reading.Id,
-                reading.MeterId,
-                reading.Location,
-                reading.MeterType,
-                reading.MetricCode,
-                reading.ObservedAt,
-                reading.Numeric,
-                reading.Flag))]);
+            [.. write.Readings.Select(ToStoredDto)]);
+
+    private static StoredMeterReadingDto ToStoredDto(StoredReadingModel reading) =>
+        new(
+            reading.Id,
+            reading.MeterId,
+            reading.Location,
+            reading.MeterType,
+            reading.MetricCode,
+            reading.ObservedAt,
+            reading.Numeric,
+            reading.Flag);
 
     [LoggerMessage(
         EventId = 1,

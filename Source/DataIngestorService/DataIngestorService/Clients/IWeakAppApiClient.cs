@@ -2,7 +2,7 @@ using DataIngestorService.Clients.Results;
 
 namespace DataIngestorService.Clients;
 
-interface IWeakAppApiClient
+internal interface IWeakAppApiClient
 {
     Task<MeterFetchResult> GetMetersAsync(CancellationToken cancellationToken);
 }

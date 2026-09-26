@@ -9,7 +9,7 @@ using Shared.Telemetry;
 
 namespace DataIngestorService.Extensions;
 
-static class ServiceCollectionExtensions
+internal static class ServiceCollectionExtensions
 {
     private const string ApiKeyHeaderName = "X-Api-Key";
     private const string ResiliencePipelineName = "weakapp";
@@ -48,10 +48,12 @@ static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.Add(ApiKeyHeaderName, options.ApiKey);
             client.Timeout = Timeout.InfiniteTimeSpan;
         })
-        .AddResilienceHandler(ResiliencePipelineName, static (builder, context) =>
-        {
-            var options = context.ServiceProvider.GetRequiredService<IOptions<WeakAppOptions>>().Value;
-            WeakAppResiliencePipeline.Configure(builder, options);
-        });
+        .AddResilienceHandler(
+            ResiliencePipelineName,
+            static (builder, context) =>
+            {
+                var options = context.ServiceProvider.GetRequiredService<IOptions<WeakAppOptions>>().Value;
+                WeakAppResiliencePipeline.Configure(builder, options);
+            });
     }
 }

@@ -10,7 +10,7 @@ using Shared.Telemetry;
 
 namespace NotificationService.API.Extensions;
 
-static class ServiceCollectionExtensions
+internal static class ServiceCollectionExtensions
 {
     private const int RetryCount = 3;
 

@@ -144,6 +144,17 @@ public class ReadingBatchServiceTests
         _scope.Verify(scope => scope.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    private static MeterReadingsBatchModel Batch(params MeterReadingModel[] readings) =>
+        Batch(DateTimeOffset.UnixEpoch, readings);
+
+    private static MeterReadingsBatchModel Batch(
+        DateTimeOffset capturedAt,
+        params MeterReadingModel[] readings) =>
+        new(Guid.NewGuid(), Guid.NewGuid(), capturedAt, readings);
+
+    private static MeterReadingModel Reading(string location, string metricCode) =>
+        new(location, "air_quality", metricCode, Numeric: 1m, Flag: null);
+
     private List<DbReading> CaptureStoredReadings()
     {
         var stored = new List<DbReading>();
@@ -164,15 +175,4 @@ public class ReadingBatchServiceTests
 
     private ReadingBatchService Service() =>
         new(_meters.Object, _readings.Object, _processed.Object, _unitOfWork.Object);
-
-    private static MeterReadingsBatchModel Batch(params MeterReadingModel[] readings) =>
-        Batch(DateTimeOffset.UnixEpoch, readings);
-
-    private static MeterReadingsBatchModel Batch(
-        DateTimeOffset capturedAt,
-        params MeterReadingModel[] readings) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), capturedAt, readings);
-
-    private static MeterReadingModel Reading(string location, string metricCode) =>
-        new(location, "air_quality", metricCode, Numeric: 1m, Flag: null);
 }

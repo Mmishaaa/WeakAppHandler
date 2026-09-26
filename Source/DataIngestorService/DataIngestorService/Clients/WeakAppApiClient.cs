@@ -8,10 +8,11 @@ using Polly.Timeout;
 
 namespace DataIngestorService.Clients;
 
-sealed class WeakAppApiClient(HttpClient httpClient) : IWeakAppApiClient
+internal sealed class WeakAppApiClient(HttpClient httpClient) : IWeakAppApiClient
 {
-    private static readonly Uri MetersPath = new("/meters", UriKind.Relative);
     private const int MaxErrorMessageLength = 1024;
+
+    private static readonly Uri MetersPath = new("/meters", UriKind.Relative);
 
     public async Task<MeterFetchResult> GetMetersAsync(CancellationToken cancellationToken)
     {

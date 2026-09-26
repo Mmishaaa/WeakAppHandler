@@ -5,7 +5,7 @@ using DataIngestorService.Models;
 
 namespace DataIngestorService.Parsing;
 
-static class MeterPayloadParser
+internal static class MeterPayloadParser
 {
     private static readonly FrozenDictionary<string, string> FieldToMetricCode =
         new Dictionary<string, string>(StringComparer.Ordinal)

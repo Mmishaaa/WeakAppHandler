@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
             builder.WithTracing(tracing => tracing
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
+                .AddSource(IngestionTracing.SourceName)
                 .AddSource(MassTransitSourceName)
                 .AddSource(NpgsqlSourceName)
                 .AddOtlpExporter(exporter => exporter.Endpoint = endpoint));

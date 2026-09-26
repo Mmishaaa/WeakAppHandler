@@ -1,6 +1,6 @@
 namespace DataIngestorService.Clients.Results;
 
-enum PollOutcome
+internal enum PollOutcome
 {
     Success,
     HttpError,

@@ -4,7 +4,7 @@ using HotChocolate.Resolvers;
 
 namespace GraphQlGateway.API.Diagnostics;
 
-sealed partial class GraphQlDiagnosticEventListener(ILogger<GraphQlDiagnosticEventListener> logger)
+internal sealed partial class GraphQlDiagnosticEventListener(ILogger<GraphQlDiagnosticEventListener> logger)
     : ExecutionDiagnosticEventListener
 {
     public override void ResolverError(IMiddlewareContext context, IError error)

@@ -7,6 +7,10 @@ namespace GraphQlGateway.Tests.Integration;
 [Collection(PostgresCollection.Name)]
 public class ReadingRepositoryDatabaseTests(PostgresFixture postgres)
 {
+    private DateTimeOffset From => postgres.Origin;
+
+    private DateTimeOffset To => postgres.Origin.AddDays(1);
+
     [Fact]
     public async Task GetBucketAggregatesAsync_GroupsByHour_InTheDatabase()
     {
@@ -106,10 +110,6 @@ public class ReadingRepositoryDatabaseTests(PostgresFixture postgres)
         readings.Should().ContainSingle()
             .Which.MetricCode.Should().Be("motion_detected");
     }
-
-    private DateTimeOffset From => postgres.Origin;
-
-    private DateTimeOffset To => postgres.Origin.AddDays(1);
 
     private ReadingRepository Repository() => new(postgres.DbContextFactory);
 }

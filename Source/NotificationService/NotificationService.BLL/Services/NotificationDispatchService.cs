@@ -61,18 +61,6 @@ public sealed class NotificationDispatchService(IOptionsMonitor<ThresholdOptions
             alerts.Count);
     }
 
-    private Dictionary<string, MetricThresholdOptions> ResolveThresholds()
-    {
-        var thresholds = new Dictionary<string, MetricThresholdOptions>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var threshold in options.CurrentValue.Metrics)
-        {
-            thresholds[threshold.MetricCode] = threshold;
-        }
-
-        return thresholds;
-    }
-
     private static NotificationEnvelopeModel Envelope(
         string group,
         IReadOnlyList<ReadingNotificationModel> readings,
@@ -85,7 +73,7 @@ public sealed class NotificationDispatchService(IOptionsMonitor<ThresholdOptions
 
     private static ReadingAlertModel? Evaluate(
         ReadingNotificationModel reading,
-        IReadOnlyDictionary<string, MetricThresholdOptions> thresholds)
+        Dictionary<string, MetricThresholdOptions> thresholds)
     {
         if (reading.Numeric is not { } value)
         {
@@ -108,5 +96,17 @@ public sealed class NotificationDispatchService(IOptionsMonitor<ThresholdOptions
         }
 
         return null;
+    }
+
+    private Dictionary<string, MetricThresholdOptions> ResolveThresholds()
+    {
+        var thresholds = new Dictionary<string, MetricThresholdOptions>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var threshold in options.CurrentValue.Metrics)
+        {
+            thresholds[threshold.MetricCode] = threshold;
+        }
+
+        return thresholds;
     }
 }

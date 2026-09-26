@@ -9,7 +9,7 @@ using Shared.Telemetry;
 
 namespace GraphQlGateway.API.Extensions;
 
-static class WebApplicationBuilderExtensions
+internal static class WebApplicationBuilderExtensions
 {
     extension(WebApplicationBuilder builder)
     {

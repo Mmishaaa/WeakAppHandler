@@ -34,6 +34,16 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
+    private static DbMeter Meter(string location, string meterType) =>
+        new()
+        {
+            Id = Guid.CreateVersion7(),
+            Location = location,
+            MeterType = meterType,
+            FirstSeenAt = DateTimeOffset.UnixEpoch,
+            LastSeenAt = DateTimeOffset.UnixEpoch,
+        };
+
     private async Task SeedAsync(GatewayDbContext dbContext)
     {
         var kitchen = Meter("Kitchen", "air_quality");
@@ -55,16 +65,6 @@ public sealed class PostgresFixture : IAsyncLifetime
         await dbContext.SaveChangesAsync();
     }
 
-    private static DbMeter Meter(string location, string meterType) =>
-        new()
-        {
-            Id = Guid.CreateVersion7(),
-            Location = location,
-            MeterType = meterType,
-            FirstSeenAt = DateTimeOffset.UnixEpoch,
-            LastSeenAt = DateTimeOffset.UnixEpoch,
-        };
-
     private DbReading Numeric(DbMeter meter, string metricCode, int hour, decimal value) =>
         new()
         {
@@ -82,10 +82,4 @@ public sealed class PostgresFixture : IAsyncLifetime
             ObservedAt = Origin.AddHours(hour),
             ValueBool = detected,
         };
-}
-
-[CollectionDefinition(Name)]
-public sealed class PostgresCollection : ICollectionFixture<PostgresFixture>
-{
-    public const string Name = "postgres";
 }

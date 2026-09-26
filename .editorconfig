@@ -16,3 +16,36 @@ dotnet_naming_style.end_in_async.required_prefix =
 dotnet_naming_style.end_in_async.required_suffix = Async
 dotnet_naming_style.end_in_async.capitalization = pascal_case
 dotnet_naming_style.end_in_async.word_separator = 
+
+# StyleCop: rules turned off on purpose
+
+# The codebase does not use XML documentation comments.
+dotnet_diagnostic.SA0001.severity = none
+dotnet_analyzer_diagnostic.category-StyleCop.CSharp.DocumentationRules.severity = none
+
+# Members are accessed without the "this." prefix.
+dotnet_diagnostic.SA1101.severity = none
+
+# Private fields follow the .NET "_camelCase" convention.
+dotnet_diagnostic.SA1309.severity = none
+
+# .NET analyzers: rules turned off on purpose
+
+# The solution is C#-only; "Shared", "Error" or "to" clashing with Visual Basic keywords is irrelevant.
+dotnet_diagnostic.CA1716.severity = none
+
+# HotChocolate resolves query fields on an instance of the root type.
+[Source/GraphQlGateway/GraphQlGateway.API/Schema/*.cs]
+dotnet_diagnostic.CA1822.severity = none
+
+# Tests: underscores separate the parts of a test name, xUnit collections end in "Collection",
+# and inline expected values read better than hoisted static arrays.
+[Source/*/*.Tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+# EF Core migrations are produced by "dotnet ef migrations add"; only the Designer files carry an
+# auto-generated header, so mark the whole folder as generated code to keep analyzers off it.
+[Source/*/*/Migrations/*.cs]
+generated_code = true

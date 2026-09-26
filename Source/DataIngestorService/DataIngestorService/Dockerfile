@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Project files first, so restore is cached until a dependency actually changes.
-COPY Directory.Build.props Directory.Packages.props nuget.config ./
+COPY Directory.Build.props Directory.Packages.props nuget.config .editorconfig stylecop.json ./
 COPY Source/Shared/Shared.csproj Source/Shared/
 COPY Source/DataIngestorService/DataIngestorService/DataIngestorService.csproj Source/DataIngestorService/DataIngestorService/
 RUN dotnet restore Source/DataIngestorService/DataIngestorService/DataIngestorService.csproj

@@ -6,7 +6,7 @@ using Polly.Timeout;
 
 namespace DataIngestorService.Clients;
 
-static class WeakAppResiliencePipeline
+internal static class WeakAppResiliencePipeline
 {
     private static readonly TimeSpan BaseDelay = TimeSpan.FromMilliseconds(200);
 
