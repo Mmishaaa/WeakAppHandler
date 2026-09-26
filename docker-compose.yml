@@ -88,6 +88,7 @@ services:
         condition: service_healthy
 
   ingestor:
+    image: weakapphandler/data-ingestor-service:${IMAGE_TAG:-latest}
     build:
       # Root context: the build needs Directory.*.props and the Shared project.
       context: .
@@ -113,6 +114,7 @@ services:
         condition: service_healthy
 
   processor:
+    image: weakapphandler/data-processor-service:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Source/DataProcessorService/DataProcessorService.API/Dockerfile
@@ -136,6 +138,7 @@ services:
         condition: service_healthy
 
   notifications:
+    image: weakapphandler/notification-service:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Source/NotificationService/NotificationService.API/Dockerfile
@@ -158,6 +161,7 @@ services:
         condition: service_healthy
 
   gateway:
+    image: weakapphandler/graphql-gateway:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Source/GraphQlGateway/GraphQlGateway.API/Dockerfile
@@ -180,6 +184,7 @@ services:
         condition: service_started
 
   frontend:
+    image: weakapphandler/frontend:${IMAGE_TAG:-latest}
     build:
       # Self-contained context: the app needs nothing from the rest of the repository.
       context: ./Source/Frontend

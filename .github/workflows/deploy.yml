@@ -1,0 +1,35 @@
+name: Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to deploy. Defaults to the commit sha.'
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    name: Build, deploy and smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # The runner is the target host here: there is no remote environment to ship to, so the
+      # pipeline proves the deploy by running it end to end and tearing it down afterwards.
+      - name: Deploy
+        shell: pwsh
+        run: ./scripts/deploy.ps1 -Tag "${{ inputs.tag || github.sha }}"
+
+      - name: Collect the logs of whatever failed
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Tear the stack down
+        if: always()
+        run: docker compose down -v --remove-orphans

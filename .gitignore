@@ -360,3 +360,6 @@ publish_output
 
 # Side artifact of `schema export`: a Nitro connection profile, not part of the schema.
 Source/GraphQlGateway/schema-settings.json
+
+# Written by scripts/deploy.ps1: which tag is live and which one to roll back to.
+.deploy-state.json

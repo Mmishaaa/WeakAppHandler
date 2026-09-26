@@ -262,6 +262,8 @@ stages: lint, build, test, Docker image.
 | `notification-service.yml` | same | same | `dotnet test` | same |
 | `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) | `docker build Source/Frontend` |
 
+`deploy.yml` sits beside them and is described under [Deployment](#deployment).
+
 Analyzer violations do not need their own stage: `Directory.Build.props` sets
 `TreatWarningsAsErrors`, so the build step fails on them. The frontend pipeline additionally reruns
 `yarn codegen` and fails on a diff, which turns a schema the committed GraphQL types no longer match
@@ -270,6 +272,42 @@ into a red build instead of a runtime error.
 Both package caches are keyed off the files that decide them — `Directory.Packages.props` for NuGet,
 `yarn.lock` for Yarn — and `yarn install --immutable` refuses to resolve anything the lockfile does
 not already pin.
+
+## Deployment
+
+There is no remote environment in this project, so `scripts/deploy.ps1` does against the local
+Docker daemon exactly what it would do against one: pin a tag, roll the stack onto it, refuse to
+call the deploy finished until every endpoint answers, and put the previous tag back when it does
+not.
+
+```powershell
+./scripts/deploy.ps1                 # build the current commit, deploy it, smoke test it
+./scripts/deploy.ps1 -Tag 1.4.0      # deploy a specific tag
+./scripts/deploy.ps1 -SkipBuild      # redeploy images that already exist
+./scripts/deploy.ps1 -DryRun         # print the commands without touching anything
+./scripts/deploy.ps1 -Rollback       # go back to the tag that last passed
+```
+
+What a run does:
+
+1. Creates `.env` from `.env.example` if it is missing.
+2. Builds every image as `weakapphandler/<service>:<tag>`, the same names the CI pipelines
+   produce. `IMAGE_TAG` is what `docker-compose.yml` substitutes, which is what makes a specific
+   build addressable at all.
+3. `docker compose up -d --wait`, so the script blocks until the containers with health checks
+   report healthy and the rest are running.
+4. Probes all ten services — WeakApp, the four .NET services, the dashboard, Prometheus, Loki,
+   Tempo and Grafana — asking Docker which host port each one actually got rather than trusting
+   `.env`.
+5. Writes the tag to `.deploy-state.json`, keeping the one before it.
+
+A failure at any of those steps re-deploys the tag recorded as current and then reports the
+failure, so a broken build leaves the previous one running rather than a half-started stack.
+
+`.github/workflows/deploy.yml` runs the same script on a tag push or on demand, with the runner
+itself as the target host: it deploys, smoke-tests, dumps container logs if anything failed, and
+tears the stack down. That is a real execution of the deploy path rather than a stub that echoes
+the steps.
 
 ## Database roles
 
