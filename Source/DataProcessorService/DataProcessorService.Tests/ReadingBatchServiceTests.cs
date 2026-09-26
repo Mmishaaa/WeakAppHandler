@@ -14,7 +14,6 @@ public class ReadingBatchServiceTests
 {
     private readonly Mock<IMeterRepository> _meters = new();
     private readonly Mock<IReadingRepository> _readings = new();
-    private readonly Mock<IProcessedMessageRepository> _processed = new();
     private readonly Mock<IUnitOfWorkServiceScope> _scope = new();
     private readonly Mock<IUnitOfWorkService> _unitOfWork = new();
 
@@ -41,30 +40,8 @@ public class ReadingBatchServiceTests
     }
 
     [Fact]
-    public async Task WriteAsync_SkipsABatchItHasAlreadyProcessed()
-    {
-        _processed
-            .Setup(processed => processed.ExistsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        var result = await Service().WriteAsync(Batch(Reading("Kitchen", "co2")), CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Outcome.Should().Be(BatchWriteResult.Duplicate);
-        result.Value.Readings.Should().BeEmpty();
-
-        _readings.Verify(
-            readings => readings.AddRangeAsync(
-                It.IsAny<IEnumerable<DbReading>>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-        _scope.Verify(scope => scope.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
     public async Task WriteAsync_RegistersAMeterPerLocationAndType_TheFirstTimeItIsSeen()
     {
-        SetupNotProcessed();
-
         await Service().WriteAsync(
             Batch(
                 Reading("Kitchen", "co2"),
@@ -80,8 +57,6 @@ public class ReadingBatchServiceTests
     [Fact]
     public async Task WriteAsync_ReusesAKnownMeter_AndMovesItsLastSeenForward()
     {
-        SetupNotProcessed();
-
         var known = new DbMeter
         {
             Id = Guid.NewGuid(),
@@ -110,8 +85,6 @@ public class ReadingBatchServiceTests
     [Fact]
     public async Task WriteAsync_StampsEveryReading_WithTheBatchCaptureTime()
     {
-        SetupNotProcessed();
-
         var capturedAt = new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);
         var stored = CaptureStoredReadings();
 
@@ -124,23 +97,16 @@ public class ReadingBatchServiceTests
     }
 
     [Fact]
-    public async Task WriteAsync_RecordsTheMessage_AndCommitsOnce()
+    public async Task WriteAsync_ReturnsTheStoredReadings_AndCommitsOnce()
     {
-        SetupNotProcessed();
-
         var batch = Batch(Reading("Kitchen", "co2"));
 
         var result = await Service().WriteAsync(batch, CancellationToken.None);
 
-        result.Value.Outcome.Should().Be(BatchWriteResult.Stored);
+        result.IsSuccess.Should().BeTrue();
         result.Value.Readings.Should().ContainSingle()
             .Which.Location.Should().Be("Kitchen");
 
-        _processed.Verify(
-            processed => processed.AddAsync(
-                It.Is<DbProcessedMessage>(message => message.MessageId == batch.MessageId),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
         _scope.Verify(scope => scope.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -150,7 +116,7 @@ public class ReadingBatchServiceTests
     private static MeterReadingsBatchModel Batch(
         DateTimeOffset capturedAt,
         params MeterReadingModel[] readings) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), capturedAt, readings);
+        new(Guid.NewGuid(), capturedAt, readings);
 
     private static MeterReadingModel Reading(string location, string metricCode) =>
         new(location, "air_quality", metricCode, Numeric: 1m, Flag: null);
@@ -168,11 +134,6 @@ public class ReadingBatchServiceTests
         return stored;
     }
 
-    private void SetupNotProcessed() =>
-        _processed
-            .Setup(processed => processed.ExistsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
-
     private ReadingBatchService Service() =>
-        new(_meters.Object, _readings.Object, _processed.Object, _unitOfWork.Object);
+        new(_meters.Object, _readings.Object, _unitOfWork.Object);
 }

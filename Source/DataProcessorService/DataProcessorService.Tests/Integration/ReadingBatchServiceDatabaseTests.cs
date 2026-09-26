@@ -1,6 +1,5 @@
 using AwesomeAssertions;
 using DataProcessorService.BLL.Models;
-using DataProcessorService.BLL.Results;
 using DataProcessorService.BLL.Services;
 using DataProcessorService.DAL;
 using DataProcessorService.DAL.Repositories;
@@ -28,7 +27,7 @@ public class ReadingBatchServiceDatabaseTests(PostgresFixture postgres)
             var result = await Service(dbContext).WriteAsync(batch, CancellationToken.None);
 
             result.IsSuccess.Should().BeTrue();
-            result.Value.Outcome.Should().Be(BatchWriteResult.Stored);
+            result.Value.Readings.Should().HaveCount(3);
         }
 
         await using var verification = postgres.CreateDbContext();
@@ -46,31 +45,6 @@ public class ReadingBatchServiceDatabaseTests(PostgresFixture postgres)
             .ValueBool.Should().BeTrue();
         stored.Single(reading => reading.MetricCode == "co2")
             .ValueNumeric.Should().Be(812m);
-    }
-
-    [Fact]
-    public async Task WriteAsync_IsIdempotent_WhenTheSameMessageArrivesTwice()
-    {
-        var batch = Batch(Reading("Hall", "air_quality", "co2", 500m));
-
-        await using (var first = postgres.CreateDbContext())
-        {
-            await Service(first).WriteAsync(batch, CancellationToken.None);
-        }
-
-        await using (var second = postgres.CreateDbContext())
-        {
-            var repeat = await Service(second).WriteAsync(batch, CancellationToken.None);
-
-            repeat.Value.Outcome.Should().Be(BatchWriteResult.Duplicate);
-        }
-
-        await using var verification = postgres.CreateDbContext();
-
-        var count = await verification.Readings
-            .CountAsync(reading => reading.ObservedAt == batch.CapturedAt);
-
-        count.Should().Be(1);
     }
 
     [Fact]
@@ -103,12 +77,10 @@ public class ReadingBatchServiceDatabaseTests(PostgresFixture postgres)
         new(
             new MeterRepository(dbContext),
             new ReadingRepository(dbContext),
-            new ProcessedMessageRepository(dbContext),
             new UnitOfWorkService(dbContext));
 
     private static MeterReadingsBatchModel Batch(params MeterReadingModel[] readings) =>
         new(
-            Guid.CreateVersion7(),
             Guid.CreateVersion7(),
             NextCapturedAt(),
             readings);

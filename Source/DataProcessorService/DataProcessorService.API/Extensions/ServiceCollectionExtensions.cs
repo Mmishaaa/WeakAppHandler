@@ -15,6 +15,8 @@ internal static class ServiceCollectionExtensions
 
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
+    private static readonly TimeSpan DuplicateDetectionWindow = TimeSpan.FromDays(1);
+
     extension(IServiceCollection services)
     {
         public IServiceCollection AddApi(IConfiguration configuration)
@@ -31,7 +33,11 @@ internal static class ServiceCollectionExtensions
                 {
                     bus.AddConsumer<MeterReadingsCapturedConsumer>();
 
-                    bus.AddEntityFrameworkOutbox<ProcessorDbContext>(outbox => outbox.UsePostgres());
+                    bus.AddEntityFrameworkOutbox<ProcessorDbContext>(outbox =>
+                    {
+                        outbox.UsePostgres();
+                        outbox.DuplicateDetectionWindow = DuplicateDetectionWindow;
+                    });
 
                     bus.AddConfigureEndpointsCallback((context, queueName, endpoint) =>
                     {

@@ -19,7 +19,6 @@ public static class ServiceCollectionExtensions
 
             services.AddScoped<IMeterRepository, MeterRepository>();
             services.AddScoped<IReadingRepository, ReadingRepository>();
-            services.AddScoped<IProcessedMessageRepository, ProcessedMessageRepository>();
 
             return services;
         }

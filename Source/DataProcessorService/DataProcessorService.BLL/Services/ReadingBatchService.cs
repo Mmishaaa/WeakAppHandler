@@ -10,7 +10,6 @@ namespace DataProcessorService.BLL.Services;
 public sealed class ReadingBatchService(
     IMeterRepository meterRepository,
     IReadingRepository readingRepository,
-    IProcessedMessageRepository processedMessageRepository,
     IUnitOfWorkService unitOfWorkService)
     : IReadingBatchService
 {
@@ -24,11 +23,6 @@ public sealed class ReadingBatchService(
         }
 
         await using var scope = await unitOfWorkService.CreateScopeAsync(cancellationToken);
-
-        if (await processedMessageRepository.ExistsAsync(batch.MessageId, cancellationToken))
-        {
-            return Result.Success(BatchWriteModel.Duplicate);
-        }
 
         var meters = await ResolveMetersAsync(batch, cancellationToken);
 
@@ -45,20 +39,11 @@ public sealed class ReadingBatchService(
 
         await readingRepository.AddRangeAsync(readings, cancellationToken);
 
-        await processedMessageRepository.AddAsync(
-            new DbProcessedMessage
-            {
-                MessageId = batch.MessageId,
-                ProcessedAt = DateTimeOffset.UtcNow,
-            },
-            cancellationToken);
-
         await scope.CommitAsync(cancellationToken);
 
         var metersById = meters.Values.ToDictionary(meter => meter.Id);
 
         return Result.Success(new BatchWriteModel(
-            BatchWriteResult.Stored,
             [.. readings.Select(reading => ToStoredModel(reading, metersById[reading.MeterId]))]));
     }
 

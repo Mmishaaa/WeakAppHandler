@@ -162,7 +162,6 @@ Three layers of metrics are exported:
 |---|---|---|
 | `weakapphandler.readings.ingested` | `meter_type` | the ingestor, once a batch is on the queue |
 | `weakapphandler.readings.stored` | — | the processor, after the transaction commits |
-| `weakapphandler.batches.duplicate` | — | the processor, when a redelivered message is skipped |
 | `weakapphandler.alerts.raised` | `kind` | the notification service, per threshold breach |
 
 The exporter renames these on the way out: dots become underscores and counters gain `_total`, so
@@ -506,8 +505,10 @@ That means three tables belong to MassTransit rather than to the domain — `Inb
 `OnModelCreating` again: their mapping ships as fluent configuration and cannot be expressed
 with annotations on entities we do not own.
 
-`ProcessedMessages` still exists and still guards against duplicates. It overlaps with the inbox
-but does not expire, while inbox rows are removed once the duplicate-detection window passes.
+Redelivered messages are filtered by `InboxState` alone: a message whose `MessageId` the consumer
+has already handled is acknowledged without calling it again. Inbox rows are kept for a one-day
+duplicate-detection window (`DuplicateDetectionWindow` in the processor's `AddApi`) and removed
+afterwards by MassTransit's cleanup service, so the table does not grow without bound.
 
 The outbox tables come from a migration, so after pulling this change:
 

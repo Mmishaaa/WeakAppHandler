@@ -1,5 +1,4 @@
 using DataProcessorService.BLL.Models;
-using DataProcessorService.BLL.Results;
 using DataProcessorService.BLL.Services;
 using MassTransit;
 using Shared.MessageContracts;
@@ -23,7 +22,7 @@ internal sealed partial class MeterReadingsCapturedConsumer(
         using var messageScope = Serilog.Context.LogContext.PushProperty("MessageId", messageId);
 
         var result = await readingBatchService.WriteAsync(
-            ToBatchModel(messageId, message),
+            ToBatchModel(message),
             context.CancellationToken);
 
         if (!result.IsSuccess)
@@ -34,22 +33,14 @@ internal sealed partial class MeterReadingsCapturedConsumer(
 
         var write = result.Value;
 
-        if (write.Outcome == BatchWriteResult.Duplicate)
-        {
-            metrics.BatchDuplicated();
-            LogBatchDuplicate(logger, message.BatchId, messageId);
-            return;
-        }
-
         await context.Publish(ToStoredEvent(message.BatchId, write), context.CancellationToken);
 
         metrics.ReadingsStored(write.Readings.Count);
         LogBatchStored(logger, message.BatchId, write.Readings.Count);
     }
 
-    private static MeterReadingsBatchModel ToBatchModel(Guid messageId, MeterReadingsCaptured message) =>
+    private static MeterReadingsBatchModel ToBatchModel(MeterReadingsCaptured message) =>
         new(
-            messageId,
             message.BatchId,
             message.CapturedAt,
             [.. message.Readings.Select(ToReadingModel)]);
@@ -79,12 +70,6 @@ internal sealed partial class MeterReadingsCapturedConsumer(
         Level = LogLevel.Information,
         Message = "Stored batch {BatchId}: {ReadingCount} readings")]
     private static partial void LogBatchStored(ILogger logger, Guid batchId, int readingCount);
-
-    [LoggerMessage(
-        EventId = 2,
-        Level = LogLevel.Information,
-        Message = "Batch {BatchId} was already processed (message {MessageId}), nothing written")]
-    private static partial void LogBatchDuplicate(ILogger logger, Guid batchId, Guid messageId);
 
     [LoggerMessage(
         EventId = 3,

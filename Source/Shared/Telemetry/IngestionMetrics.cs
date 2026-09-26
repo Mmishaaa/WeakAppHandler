@@ -8,7 +8,6 @@ public sealed class IngestionMetrics
 
     private readonly Counter<long> _readingsIngested;
     private readonly Counter<long> _readingsStored;
-    private readonly Counter<long> _duplicateBatches;
     private readonly Counter<long> _alertsRaised;
 
     public IngestionMetrics(IMeterFactory meterFactory)
@@ -27,11 +26,6 @@ public sealed class IngestionMetrics
             unit: "{reading}",
             description: "Readings committed to the database.");
 
-        _duplicateBatches = meter.CreateCounter<long>(
-            "weakapphandler.batches.duplicate",
-            unit: "{batch}",
-            description: "Batches the processor recognised as already handled.");
-
         _alertsRaised = meter.CreateCounter<long>(
             "weakapphandler.alerts.raised",
             unit: "{alert}",
@@ -42,8 +36,6 @@ public sealed class IngestionMetrics
         _readingsIngested.Add(count, new KeyValuePair<string, object?>("meter_type", meterType));
 
     public void ReadingsStored(long count) => _readingsStored.Add(count);
-
-    public void BatchDuplicated() => _duplicateBatches.Add(1);
 
     public void AlertsRaised(string kind, long count) =>
         _alertsRaised.Add(count, new KeyValuePair<string, object?>("kind", kind));

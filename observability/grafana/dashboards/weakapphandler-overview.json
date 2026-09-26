@@ -164,7 +164,7 @@
       "gridPos": {
         "x": 12,
         "y": 8,
-        "w": 8,
+        "w": 12,
         "h": 8
       },
       "fieldConfig": {
@@ -196,45 +196,6 @@
           "editorMode": "code",
           "expr": "sum by (kind) (rate(weakapphandler_alerts_raised_total[1m]))",
           "legendFormat": "{{kind}}",
-          "range": true,
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Duplicate batches",
-      "description": "Batches the processor recognised as already handled. Proof the consumer is idempotent.",
-      "gridPos": {
-        "x": 20,
-        "y": 8,
-        "w": 4,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "textMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "sum(weakapphandler_batches_duplicate_total)",
-          "legendFormat": "duplicates",
           "range": true,
           "refId": "A"
         }
