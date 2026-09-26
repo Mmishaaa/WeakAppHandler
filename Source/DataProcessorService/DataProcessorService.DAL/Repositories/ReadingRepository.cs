@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Shared.Entities;
 
@@ -8,29 +9,36 @@ public sealed class ReadingRepository(ProcessorDbContext dbContext) : IReadingRe
     public async Task AddRangeAsync(IEnumerable<DbReading> readings, CancellationToken cancellationToken) =>
         await dbContext.Readings.AddRangeAsync(readings, cancellationToken);
 
-    public async Task<IReadOnlyList<DbReading>> GetByMeterAsync(
+    public async Task<ReadingPageAggregate> GetPageByMeterAsync(
         Guid meterId,
         string? metricCode,
         DateTimeOffset? from,
         DateTimeOffset? to,
         int skip,
         int take,
-        CancellationToken cancellationToken) =>
-        await Filter(meterId, metricCode, from, to)
-            .Include(reading => reading.Meter)
-            .OrderByDescending(reading => reading.ObservedAt)
-            .ThenByDescending(reading => reading.Id)
-            .Skip(skip)
-            .Take(take)
-            .ToListAsync(cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.RepeatableRead,
+            cancellationToken);
 
-    public async Task<int> CountByMeterAsync(
-        Guid meterId,
-        string? metricCode,
-        DateTimeOffset? from,
-        DateTimeOffset? to,
-        CancellationToken cancellationToken) =>
-        await Filter(meterId, metricCode, from, to).CountAsync(cancellationToken);
+        var query = Filter(meterId, metricCode, from, to);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        IReadOnlyList<DbReading> items = skip >= totalCount
+            ? []
+            : await query
+                .OrderByDescending(reading => reading.ObservedAt)
+                .ThenByDescending(reading => reading.Id)
+                .Skip(skip)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return new ReadingPageAggregate(items, totalCount);
+    }
 
     private IQueryable<DbReading> Filter(
         Guid meterId,

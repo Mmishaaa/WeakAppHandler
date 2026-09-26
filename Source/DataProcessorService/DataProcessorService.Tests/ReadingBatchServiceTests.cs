@@ -83,6 +83,35 @@ public class ReadingBatchServiceTests
     }
 
     [Fact]
+    public async Task WriteAsync_KeepsLastSeen_AndMovesFirstSeenBack_ForAnOlderBatch()
+    {
+        var firstSeen = new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);
+        var lastSeen = firstSeen.AddHours(1);
+
+        var known = new DbMeter
+        {
+            Id = Guid.NewGuid(),
+            Location = "Kitchen",
+            MeterType = "air_quality",
+            FirstSeenAt = firstSeen,
+            LastSeenAt = lastSeen,
+        };
+
+        _meters
+            .Setup(meters => meters.GetByLocationsAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([known]);
+
+        var capturedAt = firstSeen.AddHours(-1);
+
+        await Service().WriteAsync(
+            Batch(capturedAt, Reading("Kitchen", "co2")), CancellationToken.None);
+
+        known.LastSeenAt.Should().Be(lastSeen);
+        known.FirstSeenAt.Should().Be(capturedAt);
+    }
+
+    [Fact]
     public async Task WriteAsync_StampsEveryReading_WithTheBatchCaptureTime()
     {
         var capturedAt = new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);

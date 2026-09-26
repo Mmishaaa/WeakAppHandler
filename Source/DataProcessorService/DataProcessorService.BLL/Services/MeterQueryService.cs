@@ -53,14 +53,7 @@ public sealed class MeterQueryService(
             MinPageSize,
             MaxPageSize);
 
-        var totalCount = await readingRepository.CountByMeterAsync(
-            query.MeterId,
-            query.MetricCode,
-            query.From,
-            query.To,
-            cancellationToken);
-
-        var readings = await readingRepository.GetByMeterAsync(
+        var readings = await readingRepository.GetPageByMeterAsync(
             query.MeterId,
             query.MetricCode,
             query.From,
@@ -70,10 +63,10 @@ public sealed class MeterQueryService(
             cancellationToken);
 
         return Result.Success(new PagedResultModel<StoredReadingModel>(
-            [.. readings.Select(reading => ToModel(reading, meter))],
+            [.. readings.Items.Select(reading => ToModel(reading, meter))],
             page,
             pageSize,
-            totalCount));
+            readings.TotalCount));
     }
 
     private static MeterModel ToModel(DbMeter meter) =>

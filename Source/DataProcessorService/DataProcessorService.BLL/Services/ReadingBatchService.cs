@@ -58,6 +58,19 @@ public sealed class ReadingBatchService(
             reading.ValueNumeric,
             reading.ValueBool);
 
+    private static void ExtendSeenWindow(DbMeter meter, DateTimeOffset capturedAt)
+    {
+        if (capturedAt > meter.LastSeenAt)
+        {
+            meter.LastSeenAt = capturedAt;
+        }
+
+        if (capturedAt < meter.FirstSeenAt)
+        {
+            meter.FirstSeenAt = capturedAt;
+        }
+    }
+
     private async Task<Dictionary<(string Location, string MeterType), DbMeter>> ResolveMetersAsync(
         MeterReadingsBatchModel batch,
         CancellationToken cancellationToken)
@@ -77,7 +90,7 @@ public sealed class ReadingBatchService(
         {
             if (meters.TryGetValue(key, out var meter))
             {
-                meter.LastSeenAt = batch.CapturedAt;
+                ExtendSeenWindow(meter, batch.CapturedAt);
                 continue;
             }
 
