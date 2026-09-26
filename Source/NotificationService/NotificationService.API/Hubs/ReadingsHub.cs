@@ -7,7 +7,8 @@ public sealed class ReadingsHub : Hub<IReadingsClient>
 {
     private const string SubscriptionKey = "readings.subscription";
 
-    public async Task<string> Subscribe(string? location, string? metricCode)
+    [HubMethodName("Subscribe")]
+    public async Task<string> SubscribeAsync(string? location, string? metricCode)
     {
         await LeaveCurrentGroupAsync();
 
@@ -20,7 +21,8 @@ public sealed class ReadingsHub : Hub<IReadingsClient>
         return group;
     }
 
-    public async Task Unsubscribe() => await LeaveCurrentGroupAsync();
+    [HubMethodName("Unsubscribe")]
+    public async Task UnsubscribeAsync() => await LeaveCurrentGroupAsync();
 
     private async Task LeaveCurrentGroupAsync()
     {
