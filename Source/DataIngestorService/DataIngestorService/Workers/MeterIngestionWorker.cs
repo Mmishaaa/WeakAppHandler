@@ -23,6 +23,8 @@ internal sealed partial class MeterIngestionWorker(
     private const string ReadingCountTag = "weakapp.poll.readings";
     private const string BatchIdTag = "weakapphandler.batch_id";
 
+    private static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(5);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var intervalSeconds = options.Value.PollingIntervalSeconds;
@@ -126,7 +128,21 @@ internal sealed partial class MeterIngestionWorker(
             DateTimeOffset.UtcNow,
             [.. readings.Select(ToDto)]);
 
-        await publishEndpoint.Publish(message, cancellationToken);
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(PublishTimeout);
+
+            await publishEndpoint.Publish(message, timeout.Token);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            metrics.BatchPublishFailed();
+            activity?.AddException(exception);
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+            LogBatchDropped(logger, batchId, message.Readings.Count, exception);
+            return;
+        }
 
         foreach (var group in readings.GroupBy(reading => reading.MeterType, StringComparer.Ordinal))
         {

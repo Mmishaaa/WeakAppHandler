@@ -161,6 +161,7 @@ Three layers of metrics are exported:
 | Metric | Tags | Recorded by |
 |---|---|---|
 | `weakapphandler.readings.ingested` | `meter_type` | the ingestor, once a batch is on the queue |
+| `weakapphandler.batches.publish_failed` | — | the ingestor, when a batch could not be published and was dropped |
 | `weakapphandler.readings.stored` | — | the processor, after the transaction commits |
 | `weakapphandler.alerts.raised` | `kind` | the notification service, per threshold breach |
 
@@ -170,6 +171,23 @@ The exporter renames these on the way out: dots become underscores and counters 
 The dashboard's most useful panel is **WeakApp responses** — outbound calls from the ingestor
 broken down by status code. That is where the rate limiter becomes visible: a run that stays on
 `200` is healthy, a climbing `429` line means the poll budget described above is being exceeded.
+
+### Dropped batches
+
+The ingestor has no local buffer: when RabbitMQ refuses a batch or does not confirm it within
+five seconds, the batch is dropped rather than retried. The timeout matters because MassTransit
+keeps waiting for a broker that is down instead of failing the publish. WeakApp reports a snapshot of the current state, so a dropped batch
+is a missing point in each series it carried, and the next poll brings fresh values. The loss is
+made visible instead of prevented:
+
+- `weakapphandler.batches.publish_failed` counts dropped batches, and the **Batches dropped, 1h**
+  panel turns red on the first one;
+- every drop is logged as event `10` of `MeterIngestionWorker` with the `BatchId`, the reading
+  count and the exception, and marks the `weakapp.poll` span as failed;
+- Prometheus evaluates `observability/prometheus/rules/weakapphandler.yml`, where the
+  `IngestorBatchesDropped` alert fires when any batch was dropped in the last five minutes. It
+  is listed under <http://localhost:9090/alerts>; no Alertmanager is deployed, so nothing is sent
+  anywhere.
 
 ## Logs and traces
 

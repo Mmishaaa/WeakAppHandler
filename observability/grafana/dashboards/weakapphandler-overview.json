@@ -164,7 +164,7 @@
       "gridPos": {
         "x": 12,
         "y": 8,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "fieldConfig": {
@@ -197,6 +197,64 @@
           "expr": "sum by (kind) (rate(weakapphandler_alerts_raised_total[1m]))",
           "legendFormat": "{{kind}}",
           "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Batches dropped, 1h",
+      "description": "Batches the ingestor failed to publish to RabbitMQ. Each one is a gap in the time series, not a lost event.",
+      "gridPos": {
+        "x": 20,
+        "y": 8,
+        "w": 4,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(increase(weakapphandler_batches_publish_failed_total[1h])) or vector(0)",
+          "instant": true,
+          "range": false,
           "refId": "A"
         }
       ]

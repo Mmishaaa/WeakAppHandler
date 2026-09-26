@@ -1,0 +1,12 @@
+groups:
+  - name: weakapphandler
+    rules:
+      # Each dropped batch is one missing point in every series it carried; the next poll
+      # brings fresh data, so this is a warning about a gap, not about lost events.
+      - alert: IngestorBatchesDropped
+        expr: sum(increase(weakapphandler_batches_publish_failed_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: The ingestor could not publish readings to RabbitMQ
+          description: "{{ $value | humanize }} batches were dropped in the last 5 minutes."

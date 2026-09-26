@@ -2,6 +2,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   # Every service listens on 8080 inside the backend network and exposes the
   # OpenTelemetry Prometheus exporter at /metrics.

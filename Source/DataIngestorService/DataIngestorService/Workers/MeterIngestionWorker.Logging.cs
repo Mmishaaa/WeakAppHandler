@@ -72,4 +72,10 @@ internal sealed partial class MeterIngestionWorker
         Level = LogLevel.Warning,
         Message = "WeakApp poll succeeded in {DurationMs} ms but yielded no usable readings from {MeterCount} meters")]
     private static partial void LogPollEmpty(ILogger logger, int durationMs, int meterCount);
+
+    [LoggerMessage(
+        EventId = 10,
+        Level = LogLevel.Error,
+        Message = "Batch {BatchId} with {ReadingCount} readings could not be published and was dropped")]
+    private static partial void LogBatchDropped(ILogger logger, Guid batchId, int readingCount, Exception exception);
 }
