@@ -6,6 +6,7 @@ using Shared.Extensions;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddSharedThresholds();
+builder.Configuration.AddDockerSecrets();
 builder.Services.AddApi(builder.Configuration);
 
 var app = builder.Build();
@@ -18,6 +19,7 @@ app.UseStaticFiles();
 app.UseCors();
 
 app.MapPrometheusScrapingEndpoint();
+app.MapHealthChecks("/health");
 app.MapHub<ReadingsHub>("/hubs/readings");
 
 await app.RunAsync();

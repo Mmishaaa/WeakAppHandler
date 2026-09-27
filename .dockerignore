@@ -11,3 +11,4 @@ third_party/
 
 db/
 .env
+secrets/

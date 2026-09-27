@@ -12,6 +12,7 @@ app.UseGlobalExceptionHandling();
 app.UseSerilogRequestLogging();
 
 app.MapPrometheusScrapingEndpoint();
+app.MapHealthChecks("/health");
 app.MapGraphQL();
 
 app.RunWithGraphQLCommands(args);

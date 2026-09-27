@@ -2,6 +2,7 @@ using DataProcessorService.DAL.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Shared.Configuration;
 using Shared.Extensions;
 
 namespace DataProcessorService.DAL.Extensions;
@@ -13,7 +14,7 @@ public static class ServiceCollectionExtensions
         public IServiceCollection AddDal(IConfiguration configuration)
         {
             services.AddDbContext<ProcessorDbContext>(options =>
-                options.UseNpgsql(configuration.GetConnectionString("Database")));
+                options.UseNpgsql(configuration.GetDatabaseConnectionString()));
 
             services.AddUnitOfWork<ProcessorDbContext>();
 

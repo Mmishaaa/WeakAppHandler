@@ -22,6 +22,7 @@ internal static class ServiceCollectionExtensions
             services.AddTelemetry(configuration, "DataIngestorService");
             services.AddOpenApi();
             services.AddGlobalExceptionHandling();
+            services.AddHealthChecks();
 
             AddWeakAppClient(services, configuration);
 

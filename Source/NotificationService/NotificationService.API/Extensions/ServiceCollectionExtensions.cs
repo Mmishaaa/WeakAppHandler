@@ -23,6 +23,7 @@ internal static class ServiceCollectionExtensions
             services.AddSerilogLogging(configuration, "NotificationService");
             services.AddTelemetry(configuration, "NotificationService");
             services.AddGlobalExceptionHandling();
+            services.AddHealthChecks();
             services.AddSignalR()
                 .AddJsonProtocol(json =>
                     json.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));

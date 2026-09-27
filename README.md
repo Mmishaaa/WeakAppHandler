@@ -2,45 +2,79 @@
 
 ## Running the stack
 
-```bash
-cp .env.example .env
-docker compose up -d --build
+```powershell
+pwsh ./scripts/init-secrets.ps1
+docker compose --profile observability --profile tools up -d --build
 ```
 
-That brings up everything: the third-party API, RabbitMQ, PostgreSQL, pgAdmin, the
-observability stack (Prometheus, Loki, Tempo, Grafana) and all four services.
-`docker compose ps` shows the state of each; the first build takes a few minutes.
+`init-secrets.ps1` creates the files under `secrets/` that compose mounts as secrets; it never
+overwrites one that exists. `.env` is optional: every setting already has its default in
+`docker-compose.yml`, and `.env.example` lists what is worth overriding.
+
+The stack is split into profiles, so a plain `docker compose up -d --build` starts only the
+application: WeakApp, RabbitMQ, PostgreSQL, the four services and the dashboard. `observability`
+adds Prometheus, Loki, Tempo and Grafana, `tools` adds pgAdmin. `COMPOSE_PROFILES` in `.env`
+makes a selection the default. Without the observability profile the services still try to push
+logs and traces; both exporters drop them quietly.
+
+`docker compose` also loads `docker-compose.override.yml`, which runs the four services in
+Development, with OpenAPI, Scalar and detailed errors. `docker-compose.yml` on its own, which is
+what `scripts/deploy.ps1` uses, runs them in Production.
+
+Every port is published on `127.0.0.1` only, so nothing in the stack is reachable from the rest
+of the network.
 
 If a PostgreSQL volume is left over from an earlier run, wipe it first:
 
 ```bash
-docker compose down -v && docker compose up -d --build
+docker compose --profile observability --profile tools down -v
 ```
 
-`POSTGRES_USER` and `POSTGRES_PASSWORD` are applied only while the data directory is empty, and
-so is `db/init/01-gateway-role.sh`. On an existing volume both are ignored, which shows up as
+The database passwords are applied only while the data directory is empty, and so is
+`db/init/01-gateway-role.sh`. On an existing volume both are ignored, which shows up as
 `28P01: password authentication failed` in the processor log, and as a missing `gateway` role
 for the gateway.
 
-| Service | Where |
-|---------|-------|
-| WeakApp | http://localhost:8080/meters |
-| RabbitMQ management UI | http://localhost:15672 (guest/guest) |
-| PostgreSQL | localhost:5432 |
-| pgAdmin | http://localhost:5050 |
-| Data Ingestor | http://localhost:5227 |
-| Data Processor | http://localhost:5242 |
-| GraphQL Gateway / Nitro IDE | http://localhost:5243/graphql |
-| Notification Service / test client | http://localhost:5244 |
-| Dashboard | http://localhost:5180 |
-| Prometheus | http://localhost:9090 |
-| Loki | http://localhost:3100 |
-| Tempo | http://localhost:3200 |
-| Grafana | http://localhost:3000 (admin/admin) |
+### Secrets
 
-Startup order is handled by health checks: the ingestor waits for WeakApp and the broker, the
-processor for the broker and the database, the notification service for the broker. The
-processor applies the EF migrations when it starts, so the schema appears on its own.
+| File | Used by | Development value |
+|------|---------|-------------------|
+| `secrets/postgres_password` | PostgreSQL (`processor` role), Data Processor | `processor_password` |
+| `secrets/gateway_db_password` | PostgreSQL init script (`gateway` role), GraphQL Gateway | `gateway_password` |
+| `secrets/rabbitmq_password` | RabbitMQ, the three services that use it | `guest` |
+| `secrets/weakapp_api_key` | Data Ingestor | `supersecret`, fixed by WeakApp |
+| `secrets/pgadmin_password` | pgAdmin | `admin` |
+| `secrets/grafana_password` | Grafana | `admin` |
+
+The directory is git-ignored. The development values match `appsettings.json`, so a service run
+from the IDE still reaches the containers; `init-secrets.ps1 -Generate` writes random values
+instead, which is only safe before the first start. The images take the files through their
+`*_FILE` variables, and the .NET services read `/run/secrets` as configuration
+(`AddDockerSecrets`), where each file is mounted under a configuration key such as
+`RabbitMq__Password` or `Database__Password`. Nothing secret appears in `docker inspect`.
+
+| Service | Where | Profile |
+|---------|-------|---------|
+| WeakApp | http://localhost:8080/meters | |
+| RabbitMQ management UI | http://localhost:15672 | |
+| PostgreSQL | localhost:5432 | |
+| Data Ingestor | http://localhost:5227 | |
+| Data Processor | http://localhost:5242 | |
+| GraphQL Gateway / Nitro IDE | http://localhost:5243/graphql | |
+| Notification Service / test client | http://localhost:5244 | |
+| Dashboard | http://localhost:5180 | |
+| pgAdmin | http://localhost:5050 | tools |
+| Prometheus | http://localhost:9090 | observability |
+| Loki | http://localhost:3100 | observability |
+| Tempo | http://localhost:3200 | observability |
+| Grafana | http://localhost:3000 | observability |
+
+Startup order is handled by health checks. Each .NET service answers `GET /health`: the
+processor and the gateway include a database check, and MassTransit adds a bus check wherever
+it runs. The ingestor waits for WeakApp and the broker, the processor for the broker and the
+database, the notification service for the broker, the gateway for a healthy processor and the
+dashboard for all three services it proxies. The processor applies the EF migrations before it
+starts answering, so a healthy processor means the schema exists.
 
 `Cannot load library libgssapi_krb5.so.2` in a service log is noise, not a failure: Npgsql
 probes for Kerberos, does not find it in the runtime image, and falls back to password
@@ -57,7 +91,8 @@ dotnet run --project Source/DataProcessorService/DataProcessorService.API
 
 `appsettings.json` points at `localhost`, and inside the network the containers are reached by
 service name, so both ways work without editing configuration. In containers the values come
-from the environment (`ConnectionStrings__Database`, `RabbitMq__Host`, `WeakApp__BaseUrl`).
+from the environment (`ConnectionStrings__Database`, `RabbitMq__Host`, `WeakApp__BaseUrl`) and
+from the mounted secrets.
 
 ## WeakApp
 
@@ -324,14 +359,17 @@ not.
 
 What a run does:
 
-1. Creates `.env` from `.env.example` if it is missing.
+1. Creates `.env` from `.env.example` if it is missing and warns about keys in `.env` that the
+   template does not know, then creates any missing secret and validates the compose file with
+   `docker compose config`.
 2. Builds every image as `weakapphandler/<service>:<tag>`, the same names the CI pipelines
    produce. `IMAGE_TAG` is what `docker-compose.yml` substitutes, which is what makes a specific
    build addressable at all.
-3. `docker compose up -d --wait`, so the script blocks until the containers with health checks
+3. `docker compose up -d --wait` on `docker-compose.yml` alone, with the observability profile,
+   so the services run in Production and the script blocks until the containers with health checks
    report healthy and the rest are running.
-4. Probes all ten services — WeakApp, the four .NET services, the dashboard, Prometheus, Loki,
-   Tempo and Grafana — asking Docker which host port each one actually got rather than trusting
+4. Probes all ten services — WeakApp and the four .NET services on `/health`, the dashboard,
+   Prometheus, Loki, Tempo and Grafana — asking Docker which host port each one actually got rather than trusting
    `.env`.
 5. Writes the tag to `.deploy-state.json`, keeping the one before it.
 

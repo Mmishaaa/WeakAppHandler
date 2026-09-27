@@ -6,6 +6,10 @@
 # later, which matters because at this point the schema does not exist yet.
 set -e
 
+# The password is a compose secret rather than an environment variable, so it stays out of
+# `docker inspect`. $(cat) drops the trailing newline an editor may have added.
+GATEWAY_DB_PASSWORD="$(cat /run/secrets/gateway_db_password)"
+
 psql --variable ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
     CREATE ROLE "$GATEWAY_DB_USER" LOGIN PASSWORD '$GATEWAY_DB_PASSWORD';
 

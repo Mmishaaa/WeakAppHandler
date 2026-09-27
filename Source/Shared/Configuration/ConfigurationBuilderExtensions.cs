@@ -7,6 +7,8 @@ public static class ConfigurationBuilderExtensions
 {
     public const string ThresholdsFileName = "thresholds.json";
 
+    public const string DockerSecretsDirectory = "/run/secrets";
+
     extension(IConfigurationBuilder configuration)
     {
         public IConfigurationBuilder AddSharedThresholds()
@@ -23,5 +25,8 @@ public static class ConfigurationBuilderExtensions
 
             return configuration;
         }
+
+        public IConfigurationBuilder AddDockerSecrets() =>
+            configuration.AddKeyPerFile(DockerSecretsDirectory, optional: true);
     }
 }

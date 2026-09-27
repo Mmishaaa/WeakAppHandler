@@ -355,6 +355,7 @@ MigrationBackup/
 
 publish_output
 .env
+secrets/
 
 .claude/settings.local.json
 

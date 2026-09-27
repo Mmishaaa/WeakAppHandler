@@ -1,0 +1,20 @@
+# Loaded automatically by `docker compose` next to docker-compose.yml, so local work runs the
+# services in Development: OpenAPI and Scalar are mapped and error responses carry details.
+# scripts/deploy.ps1 passes -f docker-compose.yml explicitly and therefore skips this file.
+
+services:
+  ingestor:
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+
+  processor:
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+
+  notifications:
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+
+  gateway:
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}

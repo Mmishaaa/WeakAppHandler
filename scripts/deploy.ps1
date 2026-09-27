@@ -35,6 +35,11 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $StateFile = Join-Path $RepoRoot '.deploy-state.json'
 
+# The deploy runs the stack as described in docker-compose.yml alone: naming the file skips the
+# Development override compose would otherwise load, and the observability profile is part of
+# what gets smoke-tested.
+$ComposeArguments = @('--file', (Join-Path $RepoRoot 'docker-compose.yml'), '--profile', 'observability')
+
 function Write-Step {
     param([string] $Message)
 
@@ -51,7 +56,7 @@ function Invoke-Compose {
         return
     }
 
-    & docker compose @Arguments
+    & docker compose @ComposeArguments @Arguments
 
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose $($Arguments -join ' ') exited with $LASTEXITCODE"
@@ -98,7 +103,7 @@ function Resolve-Tag {
 function Get-PublishedUrl {
     param([string] $Service, [int] $ContainerPort, [string] $Path)
 
-    $mapping = (& docker compose port $Service $ContainerPort 2>$null | Select-Object -First 1)
+    $mapping = (& docker compose @ComposeArguments port $Service $ContainerPort 2>$null | Select-Object -First 1)
 
     if ($LASTEXITCODE -ne 0 -or -not $mapping) {
         throw "$Service does not publish port $ContainerPort"
@@ -131,6 +136,55 @@ function Test-Endpoint {
     }
 }
 
+# Keys in .env that .env.example does not know are either typos or leftovers from an older
+# template, and compose silently ignores both.
+function Test-EnvFile {
+    $envFile = Join-Path $RepoRoot '.env'
+    $exampleFile = Join-Path $RepoRoot '.env.example'
+
+    if (-not (Test-Path $envFile) -or -not (Test-Path $exampleFile)) {
+        return
+    }
+
+    $pattern = '^\s*#?\s*([A-Z][A-Z0-9_]*)\s*='
+    $known = Get-Content $exampleFile | ForEach-Object { if ($_ -match $pattern) { $Matches[1] } }
+    $unknown = Get-Content $envFile |
+        Where-Object { $_ -notmatch '^\s*#' } |
+        ForEach-Object { if ($_ -match $pattern) { $Matches[1] } } |
+        Where-Object { $_ -notin $known }
+
+    foreach ($key in $unknown) {
+        Write-Warning ".env sets $key, which .env.example does not document; compose may ignore it."
+    }
+}
+
+function Initialize-Secrets {
+    Write-Step 'Checking secrets'
+
+    if ($DryRun) {
+        Write-Host '    would create the missing files under secrets/' -ForegroundColor DarkGray
+        return
+    }
+
+    & (Join-Path $PSScriptRoot 'init-secrets.ps1')
+}
+
+# Catches syntax errors, unknown keys and missing secret files before anything is built.
+function Test-ComposeFile {
+    Write-Step 'Validating docker-compose.yml'
+
+    if ($DryRun) {
+        Write-Host '    would run: docker compose config --quiet' -ForegroundColor DarkGray
+        return
+    }
+
+    & docker compose @ComposeArguments config --quiet
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker-compose.yml is not valid (docker compose config exited with $LASTEXITCODE)"
+    }
+}
+
 function Invoke-SmokeTests {
     Write-Step 'Smoke testing'
 
@@ -140,10 +194,10 @@ function Invoke-SmokeTests {
     }
 
     Test-Endpoint -Name 'weakapp'    -Service weakapp       -ContainerPort 8080 -Path '/health'
-    Test-Endpoint -Name 'ingestor'   -Service ingestor      -ContainerPort 8080 -Path '/metrics'
-    Test-Endpoint -Name 'processor'  -Service processor     -ContainerPort 8080 -Path '/metrics'
-    Test-Endpoint -Name 'gateway'    -Service gateway       -ContainerPort 8080 -Path '/metrics'
-    Test-Endpoint -Name 'notifications' -Service notifications -ContainerPort 8080 -Path '/metrics'
+    Test-Endpoint -Name 'ingestor'   -Service ingestor      -ContainerPort 8080 -Path '/health'
+    Test-Endpoint -Name 'processor'  -Service processor     -ContainerPort 8080 -Path '/health'
+    Test-Endpoint -Name 'gateway'    -Service gateway       -ContainerPort 8080 -Path '/health'
+    Test-Endpoint -Name 'notifications' -Service notifications -ContainerPort 8080 -Path '/health'
     Test-Endpoint -Name 'frontend'   -Service frontend      -ContainerPort 80   -Path '/'
     Test-Endpoint -Name 'prometheus' -Service prometheus    -ContainerPort 9090 -Path '/-/ready'
     Test-Endpoint -Name 'loki'       -Service loki          -ContainerPort 3100 -Path '/ready'
@@ -178,6 +232,10 @@ try {
             Copy-Item (Join-Path $RepoRoot '.env.example') (Join-Path $RepoRoot '.env')
         }
     }
+
+    Test-EnvFile
+    Initialize-Secrets
+    Test-ComposeFile
 
     $state = Read-State
 

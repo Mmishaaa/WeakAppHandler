@@ -3,6 +3,7 @@ using DataProcessorService.BLL.Extensions;
 using DataProcessorService.DAL;
 using MassTransit;
 using Shared.Extensions;
+using Shared.HealthChecks;
 using Shared.Logging;
 using Shared.Messaging;
 using Shared.Telemetry;
@@ -26,6 +27,8 @@ internal static class ServiceCollectionExtensions
             services.AddOpenApi();
             services.AddGlobalExceptionHandling();
             services.AddBll(configuration);
+            services.AddHealthChecks()
+                .AddCheck<DatabaseHealthCheck<ProcessorDbContext>>("database");
 
             services.AddRabbitMqMessaging(
                 configuration,

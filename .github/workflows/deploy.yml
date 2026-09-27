@@ -30,14 +30,17 @@ jobs:
 
       # The runner is the target host here: there is no remote environment to ship to, so the
       # pipeline proves the deploy by running it end to end and tearing it down afterwards.
+      # deploy.ps1 validates the compose file, creates the secrets and smoke-tests every
+      # endpoint, so a broken docker-compose.yml fails here before anything is built.
       - name: Deploy
         shell: pwsh
         run: ./scripts/deploy.ps1 -Tag "${{ inputs.tag || github.sha }}"
 
+      # Both profiles, so the logs and the teardown also reach services the deploy did not start.
       - name: Collect the logs of whatever failed
         if: failure()
-        run: docker compose logs --tail=100
+        run: docker compose --profile observability --profile tools logs --tail=100
 
       - name: Tear the stack down
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: docker compose --profile observability --profile tools down -v --remove-orphans
