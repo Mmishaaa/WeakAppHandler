@@ -2,13 +2,22 @@
 
 <#
 .SYNOPSIS
-    Rolls the whole stack forward to one image tag, or back to the last one that worked.
+    Rolls the whole stack forward to a set of image tags, or back to the last set that worked.
 
 .DESCRIPTION
     There is no remote host in this project, so "deploying" means the same thing it would
-    there: build the images under a tag, bring the stack up on that tag, refuse to call it
-    done until every endpoint answers, and fall back to the previous tag when it does not.
-    The tag that last passed is remembered in .deploy-state.json, which is what makes
+    there: put the images of a release in place, bring the stack up on them, refuse to call it
+    done until every endpoint answers, and fall back to the previous release when it does not.
+
+    A release is one image tag per service. Without -Registry the images are built from the
+    working tree under a single tag, the short commit sha unless -Tag says otherwise. With
+    -Registry they are pulled from it as CI published them, and nothing is built: -Tag applies
+    to every service, a service parameter such as -GatewayTag overrides it for that one
+    service, and a service left with neither runs latest. The tags can differ because CI only
+    rebuilds the services a push touched. Log in to the registry before a pull
+    (docker login ghcr.io); the script does not handle credentials.
+
+    The release that last passed is remembered in .deploy-state.json, which is what makes
     -Rollback possible.
 
 .EXAMPLE
@@ -16,13 +25,23 @@
     Builds the current commit, deploys it, smoke-tests it.
 
 .EXAMPLE
+    ./scripts/deploy.ps1 -Registry ghcr.io/mmishaaa/weakapphandler -GatewayTag 2026-09-25-13.12-update-metrics-format
+    Pulls that gateway image and latest for every other service, deploys them, smoke-tests them.
+
+.EXAMPLE
     ./scripts/deploy.ps1 -Rollback
-    Puts the previously deployed tag back without rebuilding anything.
+    Puts the previously deployed release back without building anything.
 #>
 
 [CmdletBinding()]
 param(
     [string] $Tag,
+    [string] $IngestorTag,
+    [string] $ProcessorTag,
+    [string] $NotificationsTag,
+    [string] $GatewayTag,
+    [string] $FrontendTag,
+    [string] $Registry,
     [switch] $SkipBuild,
     [switch] $Rollback,
     [switch] $DryRun,
@@ -39,6 +58,28 @@ $StateFile = Join-Path $RepoRoot '.deploy-state.json'
 # Development override compose would otherwise load, and the observability profile is part of
 # what gets smoke-tested.
 $ComposeArguments = @('--file', (Join-Path $RepoRoot 'docker-compose.yml'), '--profile', 'observability')
+
+# Our images, by compose service, with the variable docker-compose.yml reads each tag from.
+$ServiceTagVariables = [ordered]@{
+    ingestor      = 'INGESTOR_TAG'
+    processor     = 'PROCESSOR_TAG'
+    notifications = 'NOTIFICATIONS_TAG'
+    gateway       = 'GATEWAY_TAG'
+    frontend      = 'FRONTEND_TAG'
+}
+
+$RequestedServiceTags = @{
+    ingestor      = $IngestorTag
+    processor     = $ProcessorTag
+    notifications = $NotificationsTag
+    gateway       = $GatewayTag
+    frontend      = $FrontendTag
+}
+
+$LocalImagePrefix = 'weakapphandler'
+
+# Every variable the script sets for compose, so the calling session gets its own values back.
+$ReleaseVariables = @('IMAGE_REGISTRY', 'IMAGE_TAG') + @($ServiceTagVariables.Values)
 
 function Write-Step {
     param([string] $Message)
@@ -63,33 +104,97 @@ function Invoke-Compose {
     }
 }
 
+function Test-IsBlank {
+    param([string] $Value)
+
+    return [string]::IsNullOrWhiteSpace($Value)
+}
+
+# Docker's own rule for a tag, checked here so a typo fails before anything is pulled.
+function Assert-Tag {
+    param([string] $Value, [string] $Service)
+
+    if ($Value -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') {
+        throw "'$Value' is not a valid image tag for $Service."
+    }
+}
+
+function New-Release {
+    param([string] $ImageRegistry, [string] $DefaultTag, [hashtable] $Overrides)
+
+    $tags = [ordered]@{}
+
+    foreach ($service in $ServiceTagVariables.Keys) {
+        $override = $Overrides[$service]
+        $tags[$service] = (Test-IsBlank $override) ? $DefaultTag : $override.Trim()
+        Assert-Tag -Value $tags[$service] -Service $service
+    }
+
+    return [pscustomobject]@{
+        Registry = (Test-IsBlank $ImageRegistry) ? $null : $ImageRegistry
+        Tags     = $tags
+    }
+}
+
+# One line per release, also used to tell two releases apart.
+function Format-Release {
+    param($Release)
+
+    $source = $Release.Registry ?? 'local build'
+    $tags = @($ServiceTagVariables.Keys | ForEach-Object { "$_=$($Release.Tags[$_])" })
+
+    return "$source; $($tags -join ' ')"
+}
+
+# State written before a release carried a tag per service holds one string per release.
+function ConvertFrom-StateEntry {
+    param($Entry)
+
+    if ($null -eq $Entry) {
+        return $null
+    }
+
+    if ($Entry -is [string]) {
+        return New-Release -ImageRegistry $null -DefaultTag $Entry -Overrides @{}
+    }
+
+    $tags = @{}
+
+    foreach ($property in $Entry.Tags.PSObject.Properties) {
+        $tags[$property.Name] = [string] $property.Value
+    }
+
+    return New-Release -ImageRegistry $Entry.Registry -DefaultTag 'latest' -Overrides $tags
+}
+
 function Read-State {
     if (-not (Test-Path $StateFile)) {
         return [pscustomobject]@{ Current = $null; Previous = $null }
     }
 
-    return Get-Content $StateFile -Raw | ConvertFrom-Json
+    $raw = Get-Content $StateFile -Raw | ConvertFrom-Json
+
+    return [pscustomobject]@{
+        Current  = ConvertFrom-StateEntry $raw.Current
+        Previous = ConvertFrom-StateEntry $raw.Previous
+    }
 }
 
 function Write-State {
-    param([string] $Current, [string] $Previous)
+    param($Current, $Previous)
 
     if ($DryRun) {
         return
     }
 
     [pscustomobject]@{
-        Current   = $Current
-        Previous  = $Previous
+        Current    = $Current
+        Previous   = $Previous
         DeployedAt = (Get-Date).ToUniversalTime().ToString('o')
-    } | ConvertTo-Json | Set-Content $StateFile -Encoding utf8
+    } | ConvertTo-Json -Depth 5 | Set-Content $StateFile -Encoding utf8
 }
 
-function Resolve-Tag {
-    if ($Tag) {
-        return $Tag
-    }
-
+function Get-CommitTag {
     $revision = & git -C $RepoRoot rev-parse --short HEAD 2>$null
 
     if ($LASTEXITCODE -eq 0 -and $revision) {
@@ -97,6 +202,40 @@ function Resolve-Tag {
     }
 
     return 'local'
+}
+
+function Resolve-Release {
+    $imageRegistry = (Test-IsBlank $Registry) ? $null : $Registry.Trim().TrimEnd('/')
+    $overridden = @($RequestedServiceTags.Values | Where-Object { -not (Test-IsBlank $_) })
+
+    if ($null -eq $imageRegistry -and $overridden.Count -gt 0 -and -not $SkipBuild) {
+        throw 'A local build tags every image alike; per-service tags need -Registry or -SkipBuild.'
+    }
+
+    $defaultTag = if (-not (Test-IsBlank $Tag)) {
+        $Tag.Trim()
+    }
+    elseif ($null -ne $imageRegistry) {
+        'latest'
+    }
+    else {
+        Get-CommitTag
+    }
+
+    return New-Release -ImageRegistry $imageRegistry -DefaultTag $defaultTag -Overrides $RequestedServiceTags
+}
+
+# Compose reads the image names from these variables. Each one is set explicitly, so a value
+# left in .env or in the calling session cannot leak into the release.
+function Set-ReleaseEnvironment {
+    param($Release)
+
+    Set-Item Env:IMAGE_REGISTRY ($Release.Registry ?? $LocalImagePrefix)
+    Remove-Item Env:IMAGE_TAG -ErrorAction Ignore
+
+    foreach ($service in $ServiceTagVariables.Keys) {
+        Set-Item "Env:$($ServiceTagVariables[$service])" $Release.Tags[$service]
+    }
 }
 
 # The published port is whatever compose actually bound, not whatever .env says it wanted.
@@ -205,21 +344,39 @@ function Invoke-SmokeTests {
     Test-Endpoint -Name 'grafana'    -Service grafana       -ContainerPort 3000 -Path '/api/health'
 }
 
+# A registry release is pulled and never built: the point is to run exactly what CI produced.
+# WeakApp is not published anywhere, so compose builds it on `up` if the image is missing.
 function Invoke-Release {
-    param([string] $Release, [bool] $Build)
+    param($Release, [bool] $Build)
 
-    $env:IMAGE_TAG = $Release
+    Set-ReleaseEnvironment $Release
 
-    if ($Build) {
-        Write-Step "Building images tagged $Release"
+    Write-Host "    images from $env:IMAGE_REGISTRY" -ForegroundColor DarkGray
+
+    foreach ($service in $ServiceTagVariables.Keys) {
+        Write-Host ("    {0,-14} {1}" -f $service, $Release.Tags[$service]) -ForegroundColor DarkGray
+    }
+
+    if ($null -ne $Release.Registry) {
+        Write-Step "Pulling images from $($Release.Registry)"
+        Invoke-Compose -Arguments (@('pull') + @($ServiceTagVariables.Keys))
+    }
+    elseif ($Build) {
+        Write-Step "Building images tagged $($Release.Tags['ingestor'])"
         Invoke-Compose -Arguments @('build')
     }
 
-    Write-Step "Starting the stack on $Release"
+    Write-Step 'Starting the stack'
     Invoke-Compose -Arguments @(
         'up', '-d', '--remove-orphans', '--wait', '--wait-timeout', "$TimeoutSeconds")
 
     Invoke-SmokeTests
+}
+
+$savedEnvironment = @{}
+
+foreach ($name in $ReleaseVariables) {
+    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
 }
 
 Push-Location $RepoRoot
@@ -240,45 +397,49 @@ try {
     $state = Read-State
 
     if ($Rollback) {
-        if (-not $state.Previous) {
-            throw 'Nothing to roll back to: .deploy-state.json holds no previous tag.'
+        if ($null -eq $state.Previous) {
+            throw 'Nothing to roll back to: .deploy-state.json holds no previous release.'
         }
 
-        Write-Step "Rolling back to $($state.Previous)"
+        Write-Step "Rolling back to $(Format-Release $state.Previous)"
         Invoke-Release -Release $state.Previous -Build $false
         Write-State -Current $state.Previous -Previous $null
 
-        Write-Host "Rolled back to $($state.Previous)." -ForegroundColor Yellow
+        Write-Host "Rolled back to $(Format-Release $state.Previous)." -ForegroundColor Yellow
         return
     }
 
-    $release = Resolve-Tag
+    $release = Resolve-Release
 
-    Write-Step "Deploying $release"
+    Write-Step "Deploying $(Format-Release $release)"
 
     try {
         Invoke-Release -Release $release -Build (-not $SkipBuild)
     }
     catch {
-        Write-Host "Deploy of $release failed: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Deploy failed: $($_.Exception.Message)" -ForegroundColor Red
 
-        if (-not $state.Current -or $state.Current -eq $release) {
+        if ($null -eq $state.Current -or (Format-Release $state.Current) -eq (Format-Release $release)) {
             throw
         }
 
-        Write-Step "Rolling back to $($state.Current)"
+        Write-Step "Rolling back to $(Format-Release $state.Current)"
         Invoke-Release -Release $state.Current -Build $false
         Write-State -Current $state.Current -Previous $null
 
-        throw "Deploy of $release failed and the stack was rolled back to $($state.Current)."
+        throw "Deploy failed and the stack was rolled back to $(Format-Release $state.Current)."
     }
 
     Write-State -Current $release -Previous $state.Current
 
     Write-Host ''
-    Write-Host "Deployed $release." -ForegroundColor Green
+    Write-Host "Deployed $(Format-Release $release)." -ForegroundColor Green
     Write-Host 'Dashboard http://localhost:5180 | Grafana http://localhost:3000'
 }
 finally {
     Pop-Location
+
+    foreach ($name in $ReleaseVariables) {
+        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name])
+    }
 }

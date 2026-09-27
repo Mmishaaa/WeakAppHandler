@@ -1,5 +1,10 @@
 name: Deploy
 
+# Two ways in, with different sources for the images:
+# - a v* tag deploys the tagged commit built from source, which proves that commit deployable;
+# - a manual run deploys images CI already published to GHCR, one tag per service, so what runs
+#   is exactly what was tested. A blank service tag falls back to "tag", and a blank "tag" to
+#   latest. The dated tags (2026-09-25-13.12-<branch>) are listed in each service run's summary.
 on:
   push:
     tags:
@@ -7,12 +12,33 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Image tag to deploy. Defaults to the commit sha.'
+        description: 'Tag for every service without its own. Blank means latest.'
+        required: false
+        type: string
+      ingestor:
+        description: 'Data Ingestor Service tag'
+        required: false
+        type: string
+      processor:
+        description: 'Data Processor Service tag'
+        required: false
+        type: string
+      notifications:
+        description: 'Notification Service tag'
+        required: false
+        type: string
+      gateway:
+        description: 'GraphQL Gateway tag'
+        required: false
+        type: string
+      frontend:
+        description: 'Frontend tag'
         required: false
         type: string
 
 permissions:
   contents: read
+  packages: read
 
 # One deploy at a time, and a deploy that has started is allowed to finish or roll back.
 concurrency:
@@ -28,22 +54,54 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # The runner is the target host here: there is no remote environment to ship to, so the
       # pipeline proves the deploy by running it end to end and tearing it down afterwards.
       # deploy.ps1 validates the compose file, creates the secrets and smoke-tests every
-      # endpoint, so a broken docker-compose.yml fails here before anything is built.
+      # endpoint, so a broken docker-compose.yml fails here before anything is built or pulled.
+      # The inputs arrive through the environment rather than being pasted into the script, so
+      # a tag cannot inject PowerShell; deploy.ps1 then rejects anything that is not a valid tag.
       - name: Deploy
         shell: pwsh
-        run: ./scripts/deploy.ps1 -Tag "${{ inputs.tag || github.sha }}"
-        # init-secrets.ps1 writes these into secrets/. A repository secret that does not exist
-        # expands to an empty string, and the script then falls back to the development value.
         env:
+          DEPLOY_TAG: ${{ inputs.tag }}
+          DEPLOY_INGESTOR_TAG: ${{ inputs.ingestor }}
+          DEPLOY_PROCESSOR_TAG: ${{ inputs.processor }}
+          DEPLOY_NOTIFICATIONS_TAG: ${{ inputs.notifications }}
+          DEPLOY_GATEWAY_TAG: ${{ inputs.gateway }}
+          DEPLOY_FRONTEND_TAG: ${{ inputs.frontend }}
+          # init-secrets.ps1 writes these into secrets/. A repository secret that does not exist
+          # expands to an empty string, and the script then falls back to the development value.
           WEAKAPPHANDLER_SECRET_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           WEAKAPPHANDLER_SECRET_GATEWAY_DB_PASSWORD: ${{ secrets.GATEWAY_DB_PASSWORD }}
           WEAKAPPHANDLER_SECRET_RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
           WEAKAPPHANDLER_SECRET_WEAKAPP_API_KEY: ${{ secrets.WEAKAPP_API_KEY }}
           WEAKAPPHANDLER_SECRET_PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
           WEAKAPPHANDLER_SECRET_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+              # GHCR accepts lowercase names only, and the owner may not be.
+              $registry = "ghcr.io/$($env:GITHUB_REPOSITORY_OWNER.ToLowerInvariant())/weakapphandler"
+
+              ./scripts/deploy.ps1 `
+                  -Registry $registry `
+                  -Tag $env:DEPLOY_TAG `
+                  -IngestorTag $env:DEPLOY_INGESTOR_TAG `
+                  -ProcessorTag $env:DEPLOY_PROCESSOR_TAG `
+                  -NotificationsTag $env:DEPLOY_NOTIFICATIONS_TAG `
+                  -GatewayTag $env:DEPLOY_GATEWAY_TAG `
+                  -FrontendTag $env:DEPLOY_FRONTEND_TAG
+          }
+          else {
+              ./scripts/deploy.ps1 -Tag $env:GITHUB_SHA
+          }
 
       # Both profiles, so the logs and the teardown also reach services the deploy did not start.
       - name: Collect the logs of whatever failed

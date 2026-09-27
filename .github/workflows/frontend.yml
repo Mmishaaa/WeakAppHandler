@@ -114,6 +114,19 @@ jobs:
           Source/Frontend
         working-directory: .
 
+      # <commit time in UTC>-<branch>, e.g. 2026-09-25-13.12-update-metrics-format. The time is
+      # the commit's, not the clock's, so every workflow one push starts tags its image alike and
+      # a set of images from one commit can be deployed together. The branch is lowercased and
+      # reduced to the characters a Docker tag allows.
+      - name: Compute the image tag
+        id: tag
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%d-%H.%M)
+          branch=$(printf '%s' "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/-+$//')
+          echo "value=$(printf '%s-%s' "$stamp" "$branch" | cut -c1-128)" >> "$GITHUB_OUTPUT"
+
       # Pull requests only prove that the image builds: a token from a fork cannot write
       # packages, and an image nobody has merged has nowhere to go.
       - name: Log in to GitHub Container Registry
@@ -124,13 +137,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # GHCR accepts lowercase names only, and the owner may not be. latest follows main
-      # alone, so it always points at what was merged there; every push keeps its sha tag.
+      # GHCR accepts lowercase names only, and the owner may not be. Every push gets the dated
+      # branch tag and the commit sha; latest follows main alone, so it always points at what
+      # was merged there. The job summary names the tag deploy.yml takes as input.
       - name: Push the Docker image
         if: github.event_name != 'pull_request'
+        env:
+          DATED_TAG: ${{ steps.tag.outputs.value }}
         run: |
           remote="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE"
-          tags=("$GITHUB_SHA")
+          tags=("$DATED_TAG" "$GITHUB_SHA")
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then tags+=(latest); fi
 
           for tag in "${tags[@]}"; do
@@ -138,4 +154,7 @@ jobs:
             docker push "$remote:$tag"
           done
 
-# ci-check: touches every pipeline so a pull request runs them all. Do not merge.
+          {
+            echo "### $IMAGE"
+            for tag in "${tags[@]}"; do echo "- \`$remote:$tag\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
