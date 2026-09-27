@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 using GraphQlGateway.BLL.Models;
 using GraphQlGateway.BLL.Services;
+using GraphQlGateway.DAL.Models;
 using GraphQlGateway.DAL.Repositories;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -96,6 +97,35 @@ public class ReadingStatsServiceTests
         metric.Numeric.Should().Be(940m);
         metric.LocationCount.Should().Be(3);
         metric.Unit.Should().Be("ppm");
+    }
+
+    [Fact]
+    public async Task GetMetricSnapshotAsync_PicksTheReadingBelowTheFloor_OverAHigherOneInsideTheBand()
+    {
+        SetupLatest(
+            Reading("Kitchen", "air_quality", "humidity", 50m),
+            Reading("Office", "air_quality", "humidity", 20m));
+
+        var metric = (await Service().GetMetricSnapshotAsync(CancellationToken.None))
+            .Should().ContainSingle().Subject;
+
+        metric.Location.Should().Be("Office");
+        metric.State.Should().Be(MetricState.Below);
+        metric.Threshold.Should().Be(30m);
+    }
+
+    [Fact]
+    public async Task GetMetricSnapshotAsync_PicksTheLargerBreach_WhenBothBoundsAreCrossed()
+    {
+        SetupLatest(
+            Reading("Kitchen", "air_quality", "humidity", 75m),
+            Reading("Office", "air_quality", "humidity", 20m));
+
+        var metric = (await Service().GetMetricSnapshotAsync(CancellationToken.None))
+            .Should().ContainSingle().Subject;
+
+        metric.Location.Should().Be("Office");
+        metric.State.Should().Be(MetricState.Below);
     }
 
     [Theory]

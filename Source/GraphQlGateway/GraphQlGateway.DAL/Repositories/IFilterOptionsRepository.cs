@@ -1,3 +1,5 @@
+using GraphQlGateway.DAL.Models;
+
 namespace GraphQlGateway.DAL.Repositories;
 
 public interface IFilterOptionsRepository

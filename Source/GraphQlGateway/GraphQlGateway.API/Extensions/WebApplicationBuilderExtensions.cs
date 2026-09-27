@@ -3,6 +3,7 @@ using GraphQlGateway.API.Errors;
 using GraphQlGateway.API.Schema;
 using GraphQlGateway.BLL.Extensions;
 using GraphQlGateway.DAL;
+using Shared.Configuration;
 using Shared.Extensions;
 using Shared.Logging;
 using Shared.Telemetry;
@@ -15,6 +16,8 @@ internal static class WebApplicationBuilderExtensions
     {
         public WebApplicationBuilder AddApi()
         {
+            builder.Configuration.AddSharedThresholds();
+
             builder.Services.AddSerilogLogging(builder.Configuration, "GraphQlGateway");
             builder.Services.AddTelemetry(builder.Configuration, "GraphQlGateway");
             builder.Services.AddGlobalExceptionHandling();

@@ -553,8 +553,12 @@ threshold that was crossed and whether it went `Above` or `Below`.
 
 ### Thresholds
 
-Configured per metric in `appsettings.json`; a metric without an entry never raises an alert,
-and readings that carry a boolean instead of a number are skipped.
+Configured per metric in `Source/Shared/thresholds.json`, the single copy both the notification
+service and the gateway read. Each of them links the file into its output, and
+`AddSharedThresholds()` adds it as the lowest-priority configuration source, so `appsettings.json`
+or an environment variable such as `Thresholds__Metrics__0__Max` still overrides a value. A metric
+without an entry never raises an alert, and readings that carry a boolean instead of a number are
+skipped.
 
 ```json
 "Thresholds": {

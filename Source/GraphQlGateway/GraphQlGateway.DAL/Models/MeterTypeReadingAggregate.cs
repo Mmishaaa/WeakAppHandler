@@ -1,4 +1,4 @@
-namespace GraphQlGateway.DAL.Repositories;
+namespace GraphQlGateway.DAL.Models;
 
 public sealed record MeterTypeReadingAggregate(
     string MeterType,

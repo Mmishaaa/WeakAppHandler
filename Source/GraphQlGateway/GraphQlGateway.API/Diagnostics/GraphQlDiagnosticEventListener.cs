@@ -16,13 +16,13 @@ internal sealed partial class GraphQlDiagnosticEventListener(ILogger<GraphQlDiag
     public override void RequestError(RequestContext context, Exception error)
         => LogRequestError(logger, error);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "GraphQL resolver failed at {Path}: {ErrorMessage}")]
+    [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "GraphQL resolver failed at {Path}: {ErrorMessage}")]
     private static partial void LogResolverError(
         ILogger logger,
         string path,
         string errorMessage,
         Exception? exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "GraphQL request failed.")]
+    [LoggerMessage(EventId = 2, Level = LogLevel.Error, Message = "GraphQL request failed.")]
     private static partial void LogRequestError(ILogger logger, Exception exception);
 }

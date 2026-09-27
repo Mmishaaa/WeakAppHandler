@@ -1,3 +1,4 @@
+using GraphQlGateway.DAL.Models;
 using Shared.Entities;
 
 namespace GraphQlGateway.DAL.Repositories;

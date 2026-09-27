@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using GraphQlGateway.DAL.Models;
 using GraphQlGateway.DAL.Repositories;
 using Xunit;
 

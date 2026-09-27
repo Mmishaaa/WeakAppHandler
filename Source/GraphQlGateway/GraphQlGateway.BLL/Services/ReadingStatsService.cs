@@ -1,5 +1,6 @@
 using GraphQlGateway.BLL.Models;
 using GraphQlGateway.BLL.Projections;
+using GraphQlGateway.DAL.Models;
 using GraphQlGateway.DAL.Repositories;
 using Microsoft.Extensions.Options;
 using Shared.Configuration;
@@ -141,7 +142,7 @@ public sealed class ReadingStatsService(
             string.Equals(entry.MetricCode, metricCode, StringComparison.OrdinalIgnoreCase));
 
         var leading = readings
-            .OrderByDescending(reading => reading.ValueNumeric ?? decimal.MinValue)
+            .OrderByDescending(reading => Severity(reading.ValueNumeric, threshold))
             .ThenByDescending(reading => reading.ObservedAt)
             .First();
 
@@ -158,6 +159,33 @@ public sealed class ReadingStatsService(
             readings.Count,
             state,
             breached);
+    }
+
+    private static decimal Severity(decimal? value, MetricThresholdOptions? threshold)
+    {
+        if (value is not { } measured)
+        {
+            return decimal.MinValue;
+        }
+
+        if (threshold is null || (threshold.Min is null && threshold.Max is null))
+        {
+            return measured;
+        }
+
+        var severity = decimal.MinValue;
+
+        if (threshold.Max is { } max)
+        {
+            severity = Math.Max(severity, measured - max);
+        }
+
+        if (threshold.Min is { } min)
+        {
+            severity = Math.Max(severity, min - measured);
+        }
+
+        return severity;
     }
 
     private static (MetricState State, decimal? Threshold) Evaluate(

@@ -1,3 +1,4 @@
+using GraphQlGateway.DAL.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace GraphQlGateway.DAL.Repositories;

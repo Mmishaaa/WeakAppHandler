@@ -16,4 +16,8 @@
         <ProjectReference Include="../GraphQlGateway.DAL/GraphQlGateway.DAL.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Content Include="../../Shared/thresholds.json" Link="thresholds.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

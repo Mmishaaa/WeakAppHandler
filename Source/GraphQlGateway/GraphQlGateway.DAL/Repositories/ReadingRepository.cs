@@ -1,3 +1,4 @@
+using GraphQlGateway.DAL.Models;
 using Microsoft.EntityFrameworkCore;
 using Shared.Entities;
 

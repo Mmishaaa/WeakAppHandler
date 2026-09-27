@@ -19,8 +19,6 @@ public static class ReadingProjections
             Flag = reading.ValueBool,
         };
 
-    private static Func<DbReading, ReadingModel> Map { get; } = Projection.Compile();
-
     extension(IQueryable<DbReading> readings)
     {
         public IQueryable<ReadingModel> ToModels() => readings.Select(Projection);
@@ -66,10 +64,5 @@ public static class ReadingProjections
 
             return query;
         }
-    }
-
-    extension(IEnumerable<DbReading> readings)
-    {
-        public IReadOnlyList<ReadingModel> ToModelList() => [.. readings.Select(Map)];
     }
 }
