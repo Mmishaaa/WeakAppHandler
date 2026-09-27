@@ -39,6 +39,32 @@ public class ReadingRepositoryDatabaseTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task GetBucketAggregatesAsync_SplitsTheHour_WhenAskedForFifteenMinuteBuckets()
+    {
+        var buckets = await Repository().GetBucketAggregatesAsync(
+            "co2", From, To, ReadingBucket.FifteenMinutes, null, "Kitchen", CancellationToken.None);
+
+        buckets.Select(bucket => (bucket.Hour, bucket.Minute))
+            .Should().Equal((0, 0), (0, 15), (1, 0));
+        buckets.Select(bucket => bucket.Average).Should().Equal(400m, 600m, 800m);
+    }
+
+    [Fact]
+    public async Task GetLocationBucketAggregatesAsync_StartsEachBucketOnItsSlot_ForFiveMinuteBuckets()
+    {
+        var aggregates = await Repository().GetLocationBucketAggregatesAsync(
+            "co2", From, To, ReadingBucket.FiveMinutes, [], CancellationToken.None);
+
+        aggregates.Select(aggregate => (aggregate.Location, aggregate.Hour, aggregate.Minute))
+            .Should().Equal(
+                ("Kitchen", 0, 0),
+                ("Kitchen", 0, 20),
+                ("Kitchen", 1, 0),
+                ("Office", 0, 0),
+                ("Office", 1, 0));
+    }
+
+    [Fact]
     public async Task GetLocationBucketAggregatesAsync_ReturnsOneRowPerLocationAndBucket()
     {
         var aggregates = await Repository().GetLocationBucketAggregatesAsync(

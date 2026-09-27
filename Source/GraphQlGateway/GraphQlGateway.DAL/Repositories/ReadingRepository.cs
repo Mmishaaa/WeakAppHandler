@@ -48,6 +48,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                     group.Key.Month,
                     group.Key.Day,
                     0,
+                    0,
                     group.Count(),
                     group.Sum(reading => reading.ValueBool == true ? 1 : 0),
                     group.Average(reading => reading.ValueBool == true ? 1m : 0m),
@@ -57,6 +58,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 .ToListAsync(cancellationToken);
         }
 
+        var slotMinutes = SlotMinutes(bucket);
+
         return await query
             .GroupBy(reading => new
             {
@@ -64,17 +67,20 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 reading.ObservedAt.Month,
                 reading.ObservedAt.Day,
                 reading.ObservedAt.Hour,
+                Slot = reading.ObservedAt.Minute / slotMinutes,
             })
             .OrderBy(group => group.Key.Year)
             .ThenBy(group => group.Key.Month)
             .ThenBy(group => group.Key.Day)
             .ThenBy(group => group.Key.Hour)
+            .ThenBy(group => group.Key.Slot)
             .Select(group => new ReadingBucketAggregate(
                 string.Empty,
                 group.Key.Year,
                 group.Key.Month,
                 group.Key.Day,
                 group.Key.Hour,
+                group.Key.Slot * slotMinutes,
                 group.Count(),
                 group.Sum(reading => reading.ValueBool == true ? 1 : 0),
                 group.Average(reading => reading.ValueBool == true ? 1m : 0m),
@@ -121,6 +127,7 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                     group.Key.Month,
                     group.Key.Day,
                     0,
+                    0,
                     group.Count(),
                     group.Sum(reading => reading.ValueBool == true ? 1 : 0),
                     group.Average(reading => reading.ValueBool == true ? 1m : 0m),
@@ -130,6 +137,8 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 .ToListAsync(cancellationToken);
         }
 
+        var slotMinutes = SlotMinutes(bucket);
+
         return await query
             .GroupBy(reading => new
             {
@@ -138,18 +147,21 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
                 reading.ObservedAt.Month,
                 reading.ObservedAt.Day,
                 reading.ObservedAt.Hour,
+                Slot = reading.ObservedAt.Minute / slotMinutes,
             })
             .OrderBy(group => group.Key.Location)
             .ThenBy(group => group.Key.Year)
             .ThenBy(group => group.Key.Month)
             .ThenBy(group => group.Key.Day)
             .ThenBy(group => group.Key.Hour)
+            .ThenBy(group => group.Key.Slot)
             .Select(group => new ReadingBucketAggregate(
                 group.Key.Location,
                 group.Key.Year,
                 group.Key.Month,
                 group.Key.Day,
                 group.Key.Hour,
+                group.Key.Slot * slotMinutes,
                 group.Count(),
                 group.Sum(reading => reading.ValueBool == true ? 1 : 0),
                 group.Average(reading => reading.ValueBool == true ? 1m : 0m),
@@ -274,4 +286,18 @@ public sealed class ReadingRepository(IDbContextFactory<GatewayDbContext> dbCont
             reading.MetricCode == metricCode &&
             reading.ObservedAt >= from &&
             reading.ObservedAt < to);
+
+    // Buckets shorter than a day split the hour into equal slots; the hour bucket is a single
+    // 60-minute slot, so one query shape serves every intra-day size.
+    private static int SlotMinutes(ReadingBucket bucket) =>
+        bucket switch
+        {
+            ReadingBucket.FiveMinutes => 5,
+            ReadingBucket.FifteenMinutes => 15,
+            ReadingBucket.Hour => 60,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(bucket),
+                bucket,
+                "Day buckets are not split into slots."),
+        };
 }

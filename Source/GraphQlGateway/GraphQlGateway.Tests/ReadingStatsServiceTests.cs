@@ -15,23 +15,50 @@ public class ReadingStatsServiceTests
 {
     private readonly Mock<IReadingRepository> _repository = new(MockBehavior.Strict);
 
-    [Fact]
-    public async Task GetTimeBucketsAsync_PassesTheRequestedBucket_ToTheDatabase()
+    [Theory]
+    [InlineData(TimeBucket.FiveMinutes, ReadingBucket.FiveMinutes)]
+    [InlineData(TimeBucket.FifteenMinutes, ReadingBucket.FifteenMinutes)]
+    [InlineData(TimeBucket.Hour, ReadingBucket.Hour)]
+    [InlineData(TimeBucket.Day, ReadingBucket.Day)]
+    public async Task GetTimeBucketsAsync_MapsEveryBucketSize_ToTheDatabaseBucket(
+        TimeBucket requested,
+        ReadingBucket expected)
     {
         _repository
             .Setup(repository => repository.GetBucketAggregatesAsync(
                 "co2",
                 It.IsAny<DateTimeOffset>(),
                 It.IsAny<DateTimeOffset>(),
-                ReadingBucket.Day,
+                expected,
                 null,
                 null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
-        await Service().GetTimeBucketsAsync(Input(TimeBucket.Day), CancellationToken.None);
+        await Service().GetTimeBucketsAsync(Input(requested), CancellationToken.None);
 
         _repository.VerifyAll();
+    }
+
+    [Fact]
+    public async Task GetTimeBucketsAsync_KeepsTheMinute_OfIntraHourBuckets()
+    {
+        _repository
+            .Setup(repository => repository.GetBucketAggregatesAsync(
+                It.IsAny<string>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<ReadingBucket>(),
+                It.IsAny<Guid?>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Bucket(string.Empty, 2026, 9, 20, 14, minute: 45)]);
+
+        var buckets = await Service().GetTimeBucketsAsync(
+            Input(TimeBucket.FifteenMinutes), CancellationToken.None);
+
+        buckets.Should().ContainSingle()
+            .Which.BucketStart.Should().Be(new DateTimeOffset(2026, 9, 20, 14, 45, 0, TimeSpan.Zero));
     }
 
     [Fact]
@@ -207,9 +234,10 @@ public class ReadingStatsServiceTests
         int month,
         int day,
         int hour,
+        int minute = 0,
         int count = 1,
         decimal? average = null) =>
-        new(location, year, month, day, hour, count, 0, 0m, average, average, average);
+        new(location, year, month, day, hour, minute, count, 0, 0m, average, average, average);
 
     private static DbReading Reading(
         string location,

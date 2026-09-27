@@ -6,6 +6,7 @@ public sealed record ReadingBucketAggregate(
     int Month,
     int Day,
     int Hour,
+    int Minute,
     int Count,
     int TrueCount,
     decimal TrueShare,

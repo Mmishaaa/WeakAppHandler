@@ -224,6 +224,8 @@ enum SortEnumType {
 }
 
 enum TimeBucket {
+  FIVE_MINUTES
+  FIFTEEN_MINUTES
   HOUR
   DAY
 }

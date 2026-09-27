@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { formatShare, formatValue } from './format'
 
 describe('formatValue', () => {
+  // Numbers follow the viewer's locale, so the separator is 42.5 in CI and 42,5 on a
+  // Russian desktop; the test pins the value, not the separator.
   it('prefers the numeric reading', () => {
-    expect(formatValue(42.5, null)).toBe('42.5')
+    expect(formatValue(42.5, null)).toBe(
+      (42.5).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    )
   })
 
   it('renders a boolean reading as a flag', () => {

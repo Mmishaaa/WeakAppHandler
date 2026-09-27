@@ -13,7 +13,8 @@ describe('resolveWindow', () => {
 
   it('covers exactly as many buckets as the window is wide', () => {
     const cases = [
-      { key: '6h', buckets: 6, ms: 3_600_000 },
+      { key: '1h', buckets: 12, ms: 300_000 },
+      { key: '6h', buckets: 24, ms: 900_000 },
       { key: '24h', buckets: 24, ms: 3_600_000 },
       { key: '7d', buckets: 7, ms: 86_400_000 },
       { key: '30d', buckets: 30, ms: 86_400_000 },
@@ -51,8 +52,17 @@ describe('resolveWindow', () => {
   })
 
   it('picks the bucket size from the window', () => {
-    expect(resolveWindow(findWindow('6h'), 0).bucket).toBe('HOUR')
+    expect(resolveWindow(findWindow('1h'), 0).bucket).toBe('FIVE_MINUTES')
+    expect(resolveWindow(findWindow('6h'), 0).bucket).toBe('FIFTEEN_MINUTES')
+    expect(resolveWindow(findWindow('24h'), 0).bucket).toBe('HOUR')
     expect(resolveWindow(findWindow('30d'), 0).bucket).toBe('DAY')
+  })
+
+  it('ends a short window on the next slot boundary, not the next hour', () => {
+    const range = resolveWindow(findWindow('1h'), at('2026-09-20T01:24:34.512Z'))
+
+    expect(range.to).toBe('2026-09-20T01:25:00.000Z')
+    expect(range.from).toBe('2026-09-20T00:25:00.000Z')
   })
 })
 
@@ -62,6 +72,6 @@ describe('findWindow', () => {
   })
 
   it('falls back to 24 hours when the key is unknown', () => {
-    expect(findWindow('nonsense' as never)).toBe(timeWindows[1])
+    expect(findWindow('nonsense' as never)).toBe(timeWindows.find((window) => window.key === '24h'))
   })
 })

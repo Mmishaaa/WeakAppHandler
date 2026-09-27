@@ -73,7 +73,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 10s
-      timeout: 5s
+      # Every probe boots its own Erlang VM for the CLI; on a busy host (a cold `up --build`
+      # starting the whole stack) that alone can take several seconds.
+      timeout: 15s
       retries: 10
       # The broker takes a while to come up; without this the first probes would burn the retries.
       start_period: 30s

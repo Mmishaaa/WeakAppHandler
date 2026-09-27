@@ -52,9 +52,11 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         dbContext.Meters.AddRange(kitchen, office, bedroom);
 
+        // The second Kitchen reading lands twenty minutes past the hour, so intra-hour buckets
+        // split hour 0 while the hour and day buckets still see both readings together.
         dbContext.Readings.AddRange(
             Numeric(kitchen, "co2", hour: 0, 400m),
-            Numeric(kitchen, "co2", hour: 0, 600m),
+            Numeric(kitchen, "co2", hour: 0, 600m, minute: 20),
             Numeric(kitchen, "co2", hour: 1, 800m),
             Numeric(office, "co2", hour: 0, 900m),
             Numeric(office, "co2", hour: 1, 1100m),
@@ -65,12 +67,17 @@ public sealed class PostgresFixture : IAsyncLifetime
         await dbContext.SaveChangesAsync();
     }
 
-    private DbReading Numeric(DbMeter meter, string metricCode, int hour, decimal value) =>
+    private DbReading Numeric(
+        DbMeter meter,
+        string metricCode,
+        int hour,
+        decimal value,
+        int minute = 0) =>
         new()
         {
             MeterId = meter.Id,
             MetricCode = metricCode,
-            ObservedAt = Origin.AddHours(hour),
+            ObservedAt = Origin.AddHours(hour).AddMinutes(minute),
             ValueNumeric = value,
         };
 

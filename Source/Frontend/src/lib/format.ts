@@ -1,3 +1,5 @@
+import type { TimeBucket } from '../gql/graphql'
+
 const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
 
 const timeFormat = new Intl.DateTimeFormat(undefined, {
@@ -54,5 +56,5 @@ export const formatTime = (iso: string): string => timeFormat.format(new Date(is
 
 export const formatStamp = (iso: string): string => stampFormat.format(new Date(iso))
 
-export const formatBucket = (iso: string, bucket: 'HOUR' | 'DAY'): string =>
+export const formatBucket = (iso: string, bucket: TimeBucket): string =>
   bucket === 'DAY' ? dayFormat.format(new Date(iso)) : hourFormat.format(new Date(iso))

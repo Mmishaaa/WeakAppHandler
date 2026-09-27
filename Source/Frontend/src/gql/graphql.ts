@@ -29,6 +29,8 @@ export type ReadingStatsModelInput = {
 
 export type TimeBucket =
   | 'DAY'
+  | 'FIFTEEN_MINUTES'
+  | 'FIVE_MINUTES'
   | 'HOUR';
 
 export type FilterOptionsQueryVariables = Exact<{ [key: string]: never; }>;

@@ -217,7 +217,7 @@ public sealed class ReadingStatsService(
                 aggregate.Month,
                 aggregate.Day,
                 aggregate.Hour,
-                0,
+                aggregate.Minute,
                 0,
                 TimeSpan.Zero),
             aggregate.Count,
@@ -228,5 +228,12 @@ public sealed class ReadingStatsService(
             aggregate.Average);
 
     private static ReadingBucket ToBucket(TimeBucket bucket) =>
-        bucket == TimeBucket.Day ? ReadingBucket.Day : ReadingBucket.Hour;
+        bucket switch
+        {
+            TimeBucket.FiveMinutes => ReadingBucket.FiveMinutes,
+            TimeBucket.FifteenMinutes => ReadingBucket.FifteenMinutes,
+            TimeBucket.Hour => ReadingBucket.Hour,
+            TimeBucket.Day => ReadingBucket.Day,
+            _ => throw new ArgumentOutOfRangeException(nameof(bucket), bucket, null),
+        };
 }
