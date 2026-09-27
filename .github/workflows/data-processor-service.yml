@@ -131,3 +131,5 @@ jobs:
             docker tag "$IMAGE:$GITHUB_SHA" "$remote:$tag"
             docker push "$remote:$tag"
           done
+
+# ci-check: touches every pipeline so a pull request runs them all. Do not merge.
