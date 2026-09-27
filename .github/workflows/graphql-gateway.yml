@@ -160,3 +160,5 @@ jobs:
             echo "### $IMAGE"
             for tag in "${tags[@]}"; do echo "- \`$remote:$tag\`"; done
           } >> "$GITHUB_STEP_SUMMARY"
+
+# ci-check: touches every pipeline so a pull request runs them all. Do not merge.
