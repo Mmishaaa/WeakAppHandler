@@ -35,6 +35,15 @@ jobs:
       - name: Deploy
         shell: pwsh
         run: ./scripts/deploy.ps1 -Tag "${{ inputs.tag || github.sha }}"
+        # init-secrets.ps1 writes these into secrets/. A repository secret that does not exist
+        # expands to an empty string, and the script then falls back to the development value.
+        env:
+          WEAKAPPHANDLER_SECRET_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          WEAKAPPHANDLER_SECRET_GATEWAY_DB_PASSWORD: ${{ secrets.GATEWAY_DB_PASSWORD }}
+          WEAKAPPHANDLER_SECRET_RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          WEAKAPPHANDLER_SECRET_WEAKAPP_API_KEY: ${{ secrets.WEAKAPP_API_KEY }}
+          WEAKAPPHANDLER_SECRET_PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
+          WEAKAPPHANDLER_SECRET_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
 
       # Both profiles, so the logs and the teardown also reach services the deploy did not start.
       - name: Collect the logs of whatever failed

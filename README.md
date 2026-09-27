@@ -48,7 +48,11 @@ for the gateway.
 
 The directory is git-ignored. The development values match `appsettings.json`, so a service run
 from the IDE still reaches the containers; `init-secrets.ps1 -Generate` writes random values
-instead, which is only safe before the first start. The images take the files through their
+instead, which is only safe before the first start. A variable named
+`WEAKAPPHANDLER_SECRET_<NAME>` (for example `WEAKAPPHANDLER_SECRET_POSTGRES_PASSWORD`) takes
+precedence over both; the deploy workflow fills these from repository secrets of the same name
+without the prefix (`POSTGRES_PASSWORD`, `RABBITMQ_PASSWORD`, ...), and any it does not find
+fall back to the development values. The images take the files through their
 `*_FILE` variables, and the .NET services read `/run/secrets` as configuration
 (`AddDockerSecrets`), where each file is mounted under a configuration key such as
 `RabbitMq__Password` or `Database__Password`. Nothing secret appears in `docker inspect`.
