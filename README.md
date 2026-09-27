@@ -5,8 +5,41 @@ PostgreSQL, served over GraphQL and pushed live to a React dashboard over Signal
 
 ![Runtime data flow from the WeakApp poll to the dashboard](docs/architecture/runtime.svg)
 
+The same view as Mermaid, the version to edit when the system changes:
+
+```mermaid
+flowchart TB
+    WeakApp["WeakApp<br/>third-party API<br/>fails ~1 call in 10"]
+    Ingestor["Data Ingestor<br/>polling worker, Polly retries"]
+    RabbitMQ[["RabbitMQ<br/>MassTransit fanout exchanges"]]
+    Processor["Data Processor<br/>consumer + REST API"]
+    Postgres[("PostgreSQL<br/>Meters · Readings · InboxState · Outbox")]
+    Notifications["Notification Service<br/>thresholds.json · SignalR hub"]
+    Gateway["GraphQL Gateway<br/>HotChocolate, SQL aggregates"]
+    Dashboard["Dashboard<br/>nginx + React SPA, :5180"]
+    Browser["Browser<br/>Apollo + SignalR client"]
+
+    WeakApp -- "GET /meters every 10 s" --> Ingestor
+    Ingestor -. "publish MeterReadingsCaptured" .-> RabbitMQ
+    RabbitMQ -. "consume" .-> Processor
+    Processor -- "one transaction: rows + outbox" --> Postgres
+    Processor -. "outbox: MeterReadingsStored" .-> RabbitMQ
+    RabbitMQ -. "consume MeterReadingsStored" .-> Notifications
+    Postgres -- "SELECT only, role gateway" --- Gateway
+    Notifications -- "/hubs · readings, alerts" --> Dashboard
+    Gateway -- "/graphql" --- Dashboard
+    Dashboard -- "/api · POST readings" --> Processor
+    Dashboard <-- "HTTP + WebSocket, one origin" --> Browser
+
+    classDef external stroke-dasharray: 5 4
+    classDef broker stroke:#0b7a85,stroke-width:2px
+    class WeakApp,Browser external
+    class RabbitMQ broker
+```
+
+Solid arrows are synchronous calls, dashed or dotted ones are messages through RabbitMQ.
 [docs/architecture.md](docs/architecture.md) walks one reading through the system step by step
-and shows how a push becomes a deployed stack.
+and shows how observability and delivery fit around it.
 
 ## Prerequisites
 
