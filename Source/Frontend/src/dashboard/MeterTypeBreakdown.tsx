@@ -15,7 +15,7 @@ export const MeterTypeBreakdown = ({ range, dataVersion }: MeterTypeBreakdownPro
     variables: { from: range.from, to: range.to, metricCode: null },
   })
 
-  useRefetchOn(dataVersion, () => void refetch())
+  useRefetchOn(dataVersion, refetch)
 
   if (loading && data === undefined) {
     return <LoadingState rows={5} />

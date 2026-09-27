@@ -45,7 +45,7 @@ export const SeriesChart = ({
     skip: metricCode === null,
   })
 
-  useRefetchOn(dataVersion, () => void refetch())
+  useRefetchOn(dataVersion, refetch)
 
   const title = metricCode === null ? 'Readings over time' : `${metricCode} over time`
   const series = data?.readingSeries ?? []

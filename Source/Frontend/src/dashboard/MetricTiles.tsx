@@ -1,9 +1,18 @@
 import { useQuery } from '@apollo/client/react'
 import { MetricSnapshotDocument } from '../gql/graphql'
+import type { MetricState } from '../gql/graphql'
 import { StatePill } from '../components/StatePill'
 import { EmptyState, ErrorState, LoadingState } from '../components/PanelState'
 import { formatTime, formatValue } from '../lib/format'
+import { isPageHidden } from '../lib/usePageVisible'
 import { useRefetchOn } from '../lib/useRefetchOn'
+
+const tileClassNames: Record<MetricState, string> = {
+  ABOVE: 'tile alarm',
+  BELOW: 'tile warn',
+  OK: 'tile',
+  UNKNOWN: 'tile',
+}
 
 interface MetricTilesProps {
   dataVersion: number
@@ -12,9 +21,10 @@ interface MetricTilesProps {
 export const MetricTiles = ({ dataVersion }: MetricTilesProps) => {
   const { data, loading, error, refetch } = useQuery(MetricSnapshotDocument, {
     pollInterval: 60_000,
+    skipPollAttempt: isPageHidden,
   })
 
-  useRefetchOn(dataVersion, () => void refetch())
+  useRefetchOn(dataVersion, refetch)
 
   if (loading && data === undefined) {
     return (
@@ -54,7 +64,7 @@ export const MetricTiles = ({ dataVersion }: MetricTilesProps) => {
       {metrics.map((metric) => (
         <article
           key={metric.metricCode}
-          className={metric.state === 'ABOVE' ? 'tile alarm' : 'tile'}
+          className={tileClassNames[metric.state]}
         >
           <div className="tile-top">
             <span className="tile-metric">{metric.metricCode}</span>

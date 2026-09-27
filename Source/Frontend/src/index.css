@@ -315,6 +315,10 @@ select {
   min-width: 0;
 }
 
+.tile.warn {
+  border-color: color-mix(in srgb, var(--warning) 65%, var(--ring));
+}
+
 .tile.alarm {
   border-color: color-mix(in srgb, var(--critical) 55%, var(--ring));
 }

@@ -38,7 +38,7 @@ export const ReadingsTable = ({ filter, scope, dataVersion }: ReadingsTableProps
         : { filter, last: pageSize, before: cursor.before },
   })
 
-  useRefetchOn(dataVersion, () => void refetch())
+  useRefetchOn(dataVersion, refetch)
 
   const connection = data?.readings ?? null
   const rows = connection?.nodes ?? []

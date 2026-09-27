@@ -3,6 +3,7 @@ import { useQuery } from '@apollo/client/react'
 import { FilterOptionsDocument } from '../gql/graphql'
 import type { ReadingFilterModelInput } from '../gql/graphql'
 import { useLiveReadings } from '../api/useLiveReadings'
+import { isPageHidden } from '../lib/usePageVisible'
 import { useThrottledValue } from '../lib/useThrottledValue'
 import { findWindow, resolveWindow } from '../lib/windows'
 import { AppBar } from './AppBar'
@@ -16,13 +17,17 @@ import { initialFilters } from './filters'
 import { ErrorState } from '../components/PanelState'
 
 const rangeRefreshMs = 60_000
+const liveRefetchThrottleMs = 5_000
 
 export const Dashboard = () => {
   const [filters, setFilters] = useState(initialFilters)
   const [manualVersion, setManualVersion] = useState(0)
   const [rangeAnchor, setRangeAnchor] = useState(() => Date.now())
 
-  const optionsQuery = useQuery(FilterOptionsDocument, { pollInterval: 300_000 })
+  const optionsQuery = useQuery(FilterOptionsDocument, {
+    pollInterval: 300_000,
+    skipPollAttempt: isPageHidden,
+  })
   const options = optionsQuery.data?.filterOptions ?? null
 
   useEffect(() => {
@@ -39,7 +44,7 @@ export const Dashboard = () => {
     metricCode,
   })
 
-  const liveVersion = useThrottledValue(live.revision, 5_000)
+  const liveVersion = useThrottledValue(live.revision, liveRefetchThrottleMs)
   const dataVersion = liveVersion + manualVersion
 
   const window_ = findWindow(filters.windowKey)

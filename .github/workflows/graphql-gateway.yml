@@ -66,6 +66,14 @@ jobs:
       - name: Build
         run: dotnet build $SOLUTION --configuration Release --no-restore
 
+      # The frontend generates its types from the committed schema.graphql, so a C# change that
+      # was not followed by export-schema.ps1 would leave it typing against a stale schema.
+      # Exporting builds the schema from the types alone and never opens a database connection.
+      - name: Verify the exported schema is current
+        run: |
+          dotnet run --project Source/GraphQlGateway/GraphQlGateway.API --configuration Release --no-build --no-launch-profile -- schema export --output Source/GraphQlGateway/schema.graphql
+          git diff --exit-code -- Source/GraphQlGateway/schema.graphql
+
       # Unit tests run in process; the integration tests start a throwaway
       # PostgreSQL container through Testcontainers on the runner's Docker daemon.
       - name: Test

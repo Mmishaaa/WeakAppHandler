@@ -5,3 +5,5 @@ dist
 .yarn/unplugged
 .env
 .env.*
+test-results
+playwright-report

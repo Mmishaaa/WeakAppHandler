@@ -68,6 +68,22 @@ jobs:
           yarn codegen
           git diff --exit-code -- src/gql
 
+      # Runs against `vite preview` of the build above, with the GraphQL, REST and SignalR
+      # endpoints stubbed in the browser, so no backend has to be started.
+      - name: Install the Playwright browser
+        run: yarn playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: yarn e2e
+
+      - name: Publish the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-playwright-report
+          path: Source/Frontend/playwright-report
+          if-no-files-found: ignore
+
       - name: Build the Docker image
         run: docker build --tag weakapphandler/frontend:${{ github.sha }} Source/Frontend
         working-directory: .

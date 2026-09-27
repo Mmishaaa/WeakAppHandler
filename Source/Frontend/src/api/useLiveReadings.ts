@@ -1,9 +1,8 @@
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
 import type { HubConnection } from '@microsoft/signalr'
 import { useEffect, useRef, useState } from 'react'
+import { mergeFeed } from './liveReadings'
 import type { FeedEvent, LiveAlert, LiveReading, LiveStatus } from './liveReadings'
-
-const feedLimit = 80
 
 export interface LiveSubscription {
   location: string | null
@@ -44,12 +43,12 @@ export const useLiveReadings = (subscription: LiveSubscription): LiveReadingsSta
     connectionRef.current = connection
 
     connection.on('ReadingsReceived', (readings: LiveReading[]) => {
-      setEvents((current) => merge(current, readings, []))
+      setEvents((current) => mergeFeed(current, readings, []))
       setRevision((current) => current + 1)
     })
 
     connection.on('AlertsRaised', (alerts: LiveAlert[]) => {
-      setEvents((current) => merge(current, [], alerts))
+      setEvents((current) => mergeFeed(current, [], alerts))
     })
 
     connection.onreconnecting(() => setStatus('reconnecting'))
@@ -112,32 +111,4 @@ export const useLiveReadings = (subscription: LiveSubscription): LiveReadingsSta
     revision,
     clear: () => setEvents([]),
   }
-}
-
-const merge = (
-  current: readonly FeedEvent[],
-  readings: readonly LiveReading[],
-  alerts: readonly LiveAlert[],
-): readonly FeedEvent[] => {
-  const next = [...current]
-
-  for (const reading of readings) {
-    const key = `r-${reading.id}`
-
-    if (!next.some((event) => event.key === key)) {
-      next.unshift({ key, reading, alert: null })
-    }
-  }
-
-  for (const alert of alerts) {
-    const index = next.findIndex((event) => event.key === `r-${alert.reading.id}`)
-
-    if (index >= 0) {
-      next[index] = { ...next[index], alert }
-    } else {
-      next.unshift({ key: `r-${alert.reading.id}`, reading: alert.reading, alert })
-    }
-  }
-
-  return next.slice(0, feedLimit)
 }

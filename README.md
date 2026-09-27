@@ -232,10 +232,10 @@ dotnet test Source\DataProcessorService\DataProcessorService.slnx
 dotnet test Source\GraphQlGateway\GraphQlGateway.slnx
 dotnet test Source\NotificationService\NotificationService.slnx
 
-cd Source\Frontend; yarn test
+cd Source\Frontend; yarn test; yarn e2e
 ```
 
-xUnit with AwesomeAssertions and Moq; Vitest on the frontend. What is covered is deliberately the
+xUnit with AwesomeAssertions and Moq; Vitest with Testing Library and Playwright on the frontend. What is covered is deliberately the
 behaviour that actually broke while the project was being built, so the suite is a record of the
 bugs rather than a coverage number:
 
@@ -243,11 +243,15 @@ bugs rather than a coverage number:
 |-------|-------------------|
 | `MeterPayloadParserTests` | truncated, empty and wrongly typed payloads yield no readings instead of throwing |
 | `WeakAppResiliencePipelineTests` | `429` is not retried even when `Retry-After` is present, `5xx` and transport faults are |
-| `ReadingBatchServiceTests` | a redelivered batch writes nothing, a known meter is reused, every reading takes the batch's capture time |
-| `ReadingStatsServiceTests` | the bucket size reaches the database instead of being rolled in memory, and threshold state is decided server-side |
+| `ReadingBatchServiceTests` | an empty batch touches nothing, a known meter is reused and its seen window only ever widens, every reading takes the batch's capture time |
+| `ReadingStatsServiceTests` | the bucket size reaches the database instead of being rolled in memory, threshold state is decided server-side, and the snapshot shows the worst location rather than the highest value |
 | `NotificationDispatchServiceTests` | the fan-out covers all four group shapes, and an alert reaches every group that sees its reading |
 | `windows.test.ts` | window bounds snap to bucket boundaries and hold steady between them, so an idle tab issues no queries |
 | `format.test.ts` | numbers, units and timestamps render the same way whatever the reading carries |
+| `liveReadings.test.ts` | the live feed drops repeated readings, pins an alert to its reading and stays within its limit |
+| `useRefetchOn.test.ts` | a panel refetches once per new version, not on mount or when only its callback changes, and a hidden tab waits and catches up once |
+| `MetricTiles.test.tsx` | tiles render from `metricSnapshot`, both breaches are highlighted, and the empty and error states offer what they should |
+| `ReadingsTable.test.tsx` | Next and Previous follow the end and start cursors of the keyset connection |
 
 The resilience pipeline is exercised through Polly itself rather than through a stubbed
 `HttpClient`, so the test drives the same configuration the service runs.
@@ -261,12 +265,20 @@ these tests fail to start; the unit tests in the same projects are unaffected.
 
 | Where | What it pins down |
 |-------|-------------------|
-| `ReadingBatchServiceDatabaseTests` | the migrations apply cleanly, the transaction commits readings and meters together, and a redelivered message leaves the row count where it was |
+| `ReadingBatchServiceDatabaseTests` | the migrations apply cleanly, the transaction commits readings and meters together, and a meter is reused across batches |
 | `ReadingRepositoryDatabaseTests` | every aggregate really is computed by PostgreSQL: hourly and daily bucketing, grouping by location and by meter type, `ORDER BY AVG(...) DESC`, the boolean `trueCount` / `trueShare` pair, and the latest-per-meter join |
 
 The gateway builds its schema with `EnsureCreated`, because it owns no migrations — it reads the
 tables the processor owns. The processor's fixture runs `Migrate`, so a migration that does not
 apply fails the suite rather than production.
+
+### End-to-end tests
+
+`Source/Frontend/e2e` drives the built dashboard in Chromium through Playwright. The tests run
+against `vite preview`, and `e2e/backend.ts` answers `/graphql`, `/api/readings` and the SignalR
+negotiate request inside the browser, so they need no running backend: they check that the page
+renders what the API returns, highlights breaches, reports the hub as offline and posts the form.
+The first run needs the browser: `yarn playwright install chromium`.
 
 ## Continuous integration
 
@@ -280,14 +292,16 @@ stages: lint, build, test, Docker image.
 | `data-processor-service.yml` | same | same | unit + Testcontainers | same |
 | `graphql-gateway.yml` | same | same | unit + Testcontainers | same |
 | `notification-service.yml` | same | same | `dotnet test` | same |
-| `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) | `docker build Source/Frontend` |
+| `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) + `yarn e2e` (Playwright) | `docker build Source/Frontend` |
 
 `deploy.yml` sits beside them and is described under [Deployment](#deployment).
 
 Analyzer violations do not need their own stage: `Directory.Build.props` sets
 `TreatWarningsAsErrors`, so the build step fails on them. The frontend pipeline additionally reruns
 `yarn codegen` and fails on a diff, which turns a schema the committed GraphQL types no longer match
-into a red build instead of a runtime error.
+into a red build instead of a runtime error. The gateway pipeline closes the other half of that
+loop: it re-exports `schema.graphql` from the built C# and fails on a diff, so a schema change that
+was never exported cannot reach the frontend unnoticed.
 
 Both package caches are keyed off the files that decide them — `Directory.Packages.props` for NuGet,
 `yarn.lock` for Yarn — and `yarn install --immutable` refuses to resolve anything the lockfile does

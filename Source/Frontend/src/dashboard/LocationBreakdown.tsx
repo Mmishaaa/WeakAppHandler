@@ -20,7 +20,7 @@ export const LocationBreakdown = ({
     variables: { from: range.from, to: range.to, metricCode },
   })
 
-  useRefetchOn(dataVersion, () => void refetch())
+  useRefetchOn(dataVersion, refetch)
 
   if (loading && data === undefined) {
     return <LoadingState rows={5} />
