@@ -353,9 +353,19 @@ stages: lint, build, test, Docker image, publish.
 | `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) + `yarn e2e` (Playwright) | `docker build Source/Frontend` |
 
 The publish stage pushes the image to GitHub Container Registry as
-`ghcr.io/<owner>/weakapphandler/<service>`. Every push to `main` or `dev` gets the commit sha as
-its tag, and `main` also moves `latest`; pull requests only build the image, because a token
-from a fork cannot write packages and an unmerged image has nowhere to go. It authenticates with
+`ghcr.io/<owner>/weakapphandler/<service>` under up to three tags:
+
+| Tag | When |
+|-----|------|
+| `2026-09-25-13.12-update-metrics-format` | every push: the commit's time in UTC, then the branch |
+| `<commit sha>` | every push |
+| `latest` | pushes to `main` only |
+
+The dated tag takes the commit's time rather than the clock's, so every workflow one push
+starts tags its image the same way. The branch is lowercased and anything a Docker tag does not
+allow becomes `-`, so `feature/Update_Metrics` reads `feature-update_metrics`. Each run lists
+its tags in the job summary. Pull requests only build the image, because a token from a fork
+cannot write packages and an unmerged image has nowhere to go. It authenticates with
 the workflow's own `GITHUB_TOKEN` (`packages: write` on the job), so no repository secret is
 needed. The image carries `org.opencontainers.image.source`, which links the package to the
 repository and gives it the repository's visibility.
@@ -376,41 +386,73 @@ not already pin.
 ## Deployment
 
 There is no remote environment in this project, so `scripts/deploy.ps1` does against the local
-Docker daemon exactly what it would do against one: pin a tag, roll the stack onto it, refuse to
-call the deploy finished until every endpoint answers, and put the previous tag back when it does
-not.
+Docker daemon exactly what it would do against one: pin a release, roll the stack onto it,
+refuse to call the deploy finished until every endpoint answers, and put the previous release
+back when it does not.
+
+A release is one image tag per service. Built locally, every service shares a tag. Pulled from
+a registry, each can have its own: CI only rebuilds the services a push touched, so the
+gateway may be on today's tag while the ingestor is still on last week's.
 
 ```powershell
 ./scripts/deploy.ps1                 # build the current commit, deploy it, smoke test it
-./scripts/deploy.ps1 -Tag 1.4.0      # deploy a specific tag
-./scripts/deploy.ps1 -SkipBuild      # redeploy images that already exist
+./scripts/deploy.ps1 -Tag 1.4.0      # build under a specific tag
+./scripts/deploy.ps1 -SkipBuild      # redeploy images that already exist locally
 ./scripts/deploy.ps1 -DryRun         # print the commands without touching anything
-./scripts/deploy.ps1 -Rollback       # go back to the tag that last passed
+./scripts/deploy.ps1 -Rollback       # go back to the release that last passed
+
+# Pull what CI published instead of building. -Tag covers every service, a service parameter
+# overrides it, and a service left with neither runs latest. Log in first:
+#   gh auth token | docker login ghcr.io -u <user> --password-stdin
+./scripts/deploy.ps1 -Registry ghcr.io/<owner>/weakapphandler `
+    -GatewayTag 2026-09-25-13.12-update-metrics-format `
+    -FrontendTag 2026-09-25-13.12-update-metrics-format
 ```
+
+The service parameters are `-IngestorTag`, `-ProcessorTag`, `-NotificationsTag`, `-GatewayTag`
+and `-FrontendTag`. `docker-compose.yml` names each image
+`${IMAGE_REGISTRY}/<service>:${<SERVICE>_TAG}`, falling back to `IMAGE_TAG` and then to
+`latest`; the script sets all of them explicitly, so nothing left in `.env` or in the shell
+leaks into a release, and puts the shell's own values back when it finishes.
 
 What a run does:
 
 1. Creates `.env` from `.env.example` if it is missing and warns about keys in `.env` that the
    template does not know, then creates any missing secret and validates the compose file with
    `docker compose config`.
-2. Builds every image as `weakapphandler/<service>:<tag>`, the same names the CI pipelines
-   produce. `IMAGE_TAG` is what `docker-compose.yml` substitutes, which is what makes a specific
-   build addressable at all.
+2. Without `-Registry`, builds every image as `weakapphandler/<service>:<tag>`. With it,
+   pulls the five images from the registry and builds nothing but WeakApp, which is not
+   published anywhere. Every tag is checked against Docker's tag rules first, so a typo fails
+   before anything is pulled.
 3. `docker compose up -d --wait` on `docker-compose.yml` alone, with the observability profile,
    so the services run in Production and the script blocks until the containers with health checks
    report healthy and the rest are running.
 4. Probes all ten services — WeakApp and the four .NET services on `/health`, the dashboard,
    Prometheus, Loki, Tempo and Grafana — asking Docker which host port each one actually got
    rather than trusting `.env`.
-5. Writes the tag to `.deploy-state.json`, keeping the one before it.
+5. Writes the release — registry and per-service tags — to `.deploy-state.json`, keeping the
+   one before it. The file is git-ignored; state written by the older single-tag version of the
+   script is still read.
 
-A failure at any of those steps re-deploys the tag recorded as current and then reports the
-failure, so a broken build leaves the previous one running rather than a half-started stack.
+A failure at any of those steps re-deploys the release recorded as current and then reports the
+failure, so a broken build leaves the previous one running rather than a half-started stack. A
+registry release is pulled again on rollback, so it works on a host that never built it.
 
-`.github/workflows/deploy.yml` runs the same script on a tag push or on demand, with the runner
-itself as the target host: it deploys, smoke-tests, dumps container logs if anything failed, and
-tears the stack down. That is a real execution of the deploy path rather than a stub that echoes
-the steps.
+`.github/workflows/deploy.yml` runs the same script with the runner itself as the target host:
+it deploys, smoke-tests, dumps container logs if anything failed, and tears the stack down.
+That is a real execution of the deploy path rather than a stub that echoes the steps.
+
+| Trigger | Images |
+|---------|--------|
+| a `v*` tag push | built from the tagged commit, which proves that commit deployable |
+| Run workflow | pulled from GHCR: a `tag` input for every service plus one input per service, blank meaning `latest` |
+
+```powershell
+gh workflow run deploy.yml -f gateway=2026-09-25-13.12-update-metrics-format -f frontend=2026-09-25-13.12-update-metrics-format
+```
+
+GitHub offers Run workflow only for workflows on the default branch, so the manual path appears
+once `deploy.yml` is on `main`; a `v*` tag runs it from any commit.
 
 ## Database roles
 

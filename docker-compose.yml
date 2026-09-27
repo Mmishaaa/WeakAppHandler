@@ -4,6 +4,11 @@ name: weakapphandler
 # lists what is worth overriding. Passwords are not environment variables at all; they are
 # files under secrets/, created by scripts/init-secrets.ps1 and mounted below.
 #
+# Our five images are named ${IMAGE_REGISTRY}/<service>:<tag>. Locally the registry is just the
+# "weakapphandler" prefix and compose builds the images; scripts/deploy.ps1 -Registry points it
+# at GHCR and pulls what CI published. Each service takes its own <SERVICE>_TAG, falling back to
+# IMAGE_TAG and then to latest, because a push only rebuilds the services it touched.
+#
 # This file describes the stack the way it is deployed: Production, observability behind the
 # "observability" profile, pgAdmin behind "tools". docker-compose.override.yml, which compose
 # loads on its own, switches the services to Development for local work.
@@ -134,7 +139,7 @@ services:
         condition: service_healthy
 
   ingestor:
-    image: weakapphandler/data-ingestor-service:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-weakapphandler}/data-ingestor-service:${INGESTOR_TAG:-${IMAGE_TAG:-latest}}
     build:
       # Root context: the build needs Directory.*.props and the Shared project.
       context: .
@@ -161,7 +166,7 @@ services:
         condition: service_healthy
 
   processor:
-    image: weakapphandler/data-processor-service:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-weakapphandler}/data-processor-service:${PROCESSOR_TAG:-${IMAGE_TAG:-latest}}
     build:
       context: .
       dockerfile: Source/DataProcessorService/DataProcessorService.API/Dockerfile
@@ -189,7 +194,7 @@ services:
         condition: service_healthy
 
   notifications:
-    image: weakapphandler/notification-service:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-weakapphandler}/notification-service:${NOTIFICATIONS_TAG:-${IMAGE_TAG:-latest}}
     build:
       context: .
       dockerfile: Source/NotificationService/NotificationService.API/Dockerfile
@@ -211,7 +216,7 @@ services:
         condition: service_healthy
 
   gateway:
-    image: weakapphandler/graphql-gateway:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-weakapphandler}/graphql-gateway:${GATEWAY_TAG:-${IMAGE_TAG:-latest}}
     build:
       context: .
       dockerfile: Source/GraphQlGateway/GraphQlGateway.API/Dockerfile
@@ -236,7 +241,7 @@ services:
         condition: service_healthy
 
   frontend:
-    image: weakapphandler/frontend:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REGISTRY:-weakapphandler}/frontend:${FRONTEND_TAG:-${IMAGE_TAG:-latest}}
     build:
       # Self-contained context: the app needs nothing from the rest of the repository.
       context: ./Source/Frontend
