@@ -139,7 +139,7 @@ function Invoke-SmokeTests {
         return
     }
 
-    Test-Endpoint -Name 'weakapp'    -Service weakapp       -ContainerPort 8080 -Path '/meters'
+    Test-Endpoint -Name 'weakapp'    -Service weakapp       -ContainerPort 8080 -Path '/health'
     Test-Endpoint -Name 'ingestor'   -Service ingestor      -ContainerPort 8080 -Path '/metrics'
     Test-Endpoint -Name 'processor'  -Service processor     -ContainerPort 8080 -Path '/metrics'
     Test-Endpoint -Name 'gateway'    -Service gateway       -ContainerPort 8080 -Path '/metrics'

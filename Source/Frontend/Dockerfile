@@ -1,6 +1,6 @@
 # Build context is Source/Frontend: the app is self-contained and the generated GraphQL types
 # are committed, so the exported schema is not needed at image build time.
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /src
 
 # Corepack reads packageManager from package.json, so the image uses the same Yarn as the repo.

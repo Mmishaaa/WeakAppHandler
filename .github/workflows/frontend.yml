@@ -14,6 +14,14 @@ on:
       - '.github/workflows/frontend.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request makes the running build pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     working-directory: Source/Frontend
@@ -38,11 +46,16 @@ jobs:
         run: corepack enable
         working-directory: .
 
+      # Yarn 4 keeps its archives in a global cache outside the project, so ask it where.
+      - name: Locate the Yarn cache
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+
       - name: Restore the Yarn cache
         uses: actions/cache@v4
         with:
           path: |
-            Source/Frontend/.yarn/cache
+            ${{ steps.yarn-cache.outputs.dir }}
             Source/Frontend/.yarn/install-state.gz
           key: yarn-${{ runner.os }}-${{ hashFiles('Source/Frontend/yarn.lock') }}
           restore-keys: yarn-${{ runner.os }}-

@@ -1,12 +1,21 @@
 {
   "Servers": {
     "1": {
-      "Name": "WeakAppHandler",
+      "Name": "WeakAppHandler (processor, read-write)",
       "Group": "Servers",
       "Host": "postgres",
       "Port": 5432,
       "MaintenanceDB": "weakapphandler",
       "Username": "processor",
+      "SSLMode": "prefer"
+    },
+    "2": {
+      "Name": "WeakAppHandler (gateway, read-only)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "weakapphandler",
+      "Username": "gateway",
       "SSLMode": "prefer"
     }
   }

@@ -11,6 +11,14 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
+# One deploy at a time, and a deploy that has started is allowed to finish or roll back.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Build, deploy and smoke test
