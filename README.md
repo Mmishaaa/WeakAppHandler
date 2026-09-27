@@ -1,5 +1,13 @@
 # WeakAppHandler
 
+Meter readings are polled from an unreliable third-party API, carried through RabbitMQ, stored in
+PostgreSQL, served over GraphQL and pushed live to a React dashboard over SignalR.
+
+![Runtime data flow from the WeakApp poll to the dashboard](docs/architecture/runtime.svg)
+
+[docs/architecture.md](docs/architecture.md) walks one reading through the system step by step
+and shows how a push becomes a deployed stack.
+
 ## Prerequisites
 
 | Tool | Why |

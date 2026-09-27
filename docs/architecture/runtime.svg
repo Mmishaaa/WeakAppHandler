@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 790" width="1240" height="790" role="img" aria-label="The ingestor polls WeakApp and publishes readings to RabbitMQ; the processor stores them in PostgreSQL with an outbox event; the notification service pushes that event to browsers over SignalR, and the GraphQL gateway serves stored readings read-only through the dashboard's nginx." xmlns:c2pa="http://c2pa.org/manifest"><metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpmYTJiOGI4MS0yMDc0LTQ5OTAtYmQxNi1iYjliYmRlMjI5NWYAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaAJwpe1J4PRYcUdxewWCKkwAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpjYzVhM2IxZC03YjZkLTQ2NzYtYTNlNi00MmFkYzY0OGU0MGNscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoZ61XvVNEmEs2PFrY8DghlgAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggk/1qvaeeSGkwzln18TggLsqUr3Xw/H9aNf2xGX1wSXSkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaNsYZvhg/dbKtj57LD1TZ/QAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIHnvBaiEqjD4r46Tn86yHDebzs6p9X5e0egpSDVfa8FnZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GQHKZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmZhMmI4YjgxLTIwNzQtNDk5MC1iZDE2LWJiOWJiZGUyMjk1Zi9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmRhOGZhOTA5LTdmYzktNGZiOS05YTZiLThlNTQ5ZWRiNjU2MHJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCT/Wq9p55IaTDOWfXxOCAuypSvdfD8f1o1/bEZfXBJdKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggfxtSa/mHiTw0/kjM4zk3WJYvxfLuTax0KCShz5cj/7OiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggFLx0wGCqajKzF8zzPgRqm+89/1p4OB0ZgM7IZ8LVLnB0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQBMW6ULxg9ldA8UMMc8IsQnO0yJfMDqlJ22R1W31zFEAiC4n6QzeKyQ3EgZ1hYMjYnaGpscgTEpWJ2Suh6gG9uo=</c2pa:manifest></metadata>
+<style>
+  svg { color: #1a2230; }
+  .bg { fill: #ffffff; }
+  .box { fill: #ffffff; stroke: #c7cfdb; stroke-width: 1.5; }
+  .box-ext { fill: #f4f6f9; stroke: #c7cfdb; stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .box-bus { fill: #e3f3f4; stroke: #0b7a85; stroke-width: 1.5; }
+  .zone { fill: #eaeef4; }
+  text { font-family: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif; }
+  .t-title { font-size: 14px; font-weight: 600; fill: #1a2230; }
+  .t-sub { font-size: 11.5px; fill: #5a6577; }
+  .t-edge, .t-msg, .t-zone { font-family: "IBM Plex Mono", Consolas, Menlo, monospace; font-size: 11px; }
+  .t-edge { fill: #5a6577; }
+  .t-msg { fill: #0b7a85; }
+  .t-zone { font-size: 10.5px; letter-spacing: 0.08em; fill: #5a6577; }
+  .e-sync { stroke: #1a2230; stroke-width: 1.4; fill: none; }
+  .e-msg { stroke: #0b7a85; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; }
+  .head-sync { fill: #1a2230; }
+  .head-msg { fill: #0b7a85; }
+  @media (prefers-color-scheme: dark) {
+    .bg, .box { fill: #171e28; }
+    .box { stroke: #334052; }
+    .box-ext { fill: #0f141b; stroke: #334052; }
+    .box-bus { fill: #123238; stroke: #3cc4cf; }
+    .zone { fill: #131a23; }
+    .t-title { fill: #e5eaf1; }
+    .t-sub, .t-edge, .t-zone { fill: #9aa6b8; }
+    .t-msg { fill: #3cc4cf; }
+    .e-sync { stroke: #e5eaf1; }
+    .e-msg { stroke: #3cc4cf; }
+    .head-sync { fill: #e5eaf1; }
+    .head-msg { fill: #3cc4cf; }
+  }
+</style>
+  <title>The ingestor polls WeakApp and publishes readings to RabbitMQ; the processor stores them in PostgreSQL with an outbox event; the notification service pushes that event to browsers over SignalR, and the GraphQL gateway serves stored readings read-only through the dashboard's nginx.</title>
+  <rect class="bg" x="0" y="0" width="1240" height="790" rx="12"/>
+          <defs>
+            <marker id="head-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="head-sync"/>
+            </marker>
+            <marker id="head-msg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="head-msg"/>
+            </marker>
+          </defs>
+
+          <!-- zones -->
+          <rect class="zone" x="10" y="14" width="1220" height="196" rx="10"/>
+          <text class="t-zone" x="24" y="36">WRITE PATH · INGEST → QUEUE → STORE</text>
+          <rect class="zone" x="500" y="300" width="730" height="120" rx="10"/>
+          <text class="t-zone" x="514" y="322">READ AND PUSH</text>
+          <rect class="zone" x="10" y="500" width="480" height="276" rx="10"/>
+          <text class="t-zone" x="24" y="522">OBSERVABILITY · PROFILE "observability"</text>
+
+          <!-- row 1 -->
+          <rect class="box-ext" x="20" y="100" width="160" height="80" rx="8"/>
+          <text class="t-title" x="100" y="128" text-anchor="middle">WeakApp</text>
+          <text class="t-sub" x="100" y="147" text-anchor="middle">third-party API</text>
+          <text class="t-sub" x="100" y="163" text-anchor="middle">fails ~1 call in 10</text>
+
+          <rect class="box" x="280" y="100" width="160" height="80" rx="8"/>
+          <text class="t-title" x="360" y="128" text-anchor="middle">Data Ingestor</text>
+          <text class="t-sub" x="360" y="147" text-anchor="middle">polling worker</text>
+          <text class="t-sub" x="360" y="163" text-anchor="middle">Polly retries</text>
+
+          <rect class="box-bus" x="540" y="100" width="160" height="80" rx="8"/>
+          <text class="t-title" x="620" y="128" text-anchor="middle">RabbitMQ</text>
+          <text class="t-sub" x="620" y="147" text-anchor="middle">MassTransit</text>
+          <text class="t-sub" x="620" y="163" text-anchor="middle">fanout exchanges</text>
+
+          <rect class="box" x="800" y="100" width="160" height="80" rx="8"/>
+          <text class="t-title" x="880" y="128" text-anchor="middle">Data Processor</text>
+          <text class="t-sub" x="880" y="147" text-anchor="middle">consumer + REST API</text>
+          <text class="t-sub" x="880" y="163" text-anchor="middle">runs EF migrations</text>
+
+          <rect class="box" x="1060" y="100" width="160" height="80" rx="8"/>
+          <text class="t-title" x="1140" y="128" text-anchor="middle">PostgreSQL</text>
+          <text class="t-sub" x="1140" y="147" text-anchor="middle">Meters · Readings</text>
+          <text class="t-sub" x="1140" y="163" text-anchor="middle">InboxState · Outbox</text>
+
+          <!-- row 1 edges -->
+          <line class="e-sync" x1="280" y1="124" x2="182" y2="124" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="230" y="116" text-anchor="middle">GET /meters</text>
+          <line class="e-sync" x1="180" y1="156" x2="278" y2="156" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="230" y="148" text-anchor="middle">every 10 s</text>
+          <text class="t-edge" x="230" y="174" text-anchor="middle">readings</text>
+
+          <line class="e-msg" x1="440" y1="140" x2="538" y2="140" marker-end="url(#head-msg)"/>
+          <text class="t-msg" x="490" y="132" text-anchor="middle">publish</text>
+          <text class="t-msg" x="490" y="158" text-anchor="middle">…Captured</text>
+
+          <line class="e-msg" x1="700" y1="124" x2="798" y2="124" marker-end="url(#head-msg)"/>
+          <text class="t-msg" x="750" y="116" text-anchor="middle">consume</text>
+          <line class="e-msg" x1="800" y1="156" x2="702" y2="156" marker-end="url(#head-msg)"/>
+          <text class="t-msg" x="750" y="148" text-anchor="middle">outbox</text>
+          <text class="t-msg" x="750" y="174" text-anchor="middle">…Stored</text>
+
+          <line class="e-sync" x1="960" y1="140" x2="1058" y2="140" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="1010" y="132" text-anchor="middle">one</text>
+          <text class="t-edge" x="1010" y="158" text-anchor="middle">transaction</text>
+
+          <!-- row 2 -->
+          <rect class="box" x="540" y="330" width="160" height="80" rx="8"/>
+          <text class="t-title" x="620" y="358" text-anchor="middle">Notification Svc</text>
+          <text class="t-sub" x="620" y="377" text-anchor="middle">thresholds.json</text>
+          <text class="t-sub" x="620" y="393" text-anchor="middle">SignalR hub + groups</text>
+
+          <rect class="box" x="1060" y="330" width="160" height="80" rx="8"/>
+          <text class="t-title" x="1140" y="358" text-anchor="middle">GraphQL Gateway</text>
+          <text class="t-sub" x="1140" y="377" text-anchor="middle">HotChocolate</text>
+          <text class="t-sub" x="1140" y="393" text-anchor="middle">SQL aggregates</text>
+
+          <!-- broker to notifications -->
+          <line class="e-msg" x1="620" y1="180" x2="620" y2="328" marker-end="url(#head-msg)"/>
+          <text class="t-msg" x="630" y="244">consume</text>
+          <text class="t-msg" x="630" y="260">…Stored</text>
+
+          <!-- gateway reads postgres -->
+          <line class="e-sync" x1="1140" y1="330" x2="1140" y2="182" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="1130" y="244" text-anchor="end">SELECT only</text>
+          <text class="t-edge" x="1130" y="260" text-anchor="end">role "gateway"</text>
+
+          <!-- row 3: dashboard and browser -->
+          <rect class="box" x="800" y="560" width="160" height="80" rx="8"/>
+          <text class="t-title" x="880" y="588" text-anchor="middle">Dashboard</text>
+          <text class="t-sub" x="880" y="607" text-anchor="middle">nginx + React SPA</text>
+          <text class="t-sub" x="880" y="623" text-anchor="middle">:5180, one origin</text>
+
+          <rect class="box-ext" x="800" y="700" width="160" height="70" rx="8"/>
+          <text class="t-title" x="880" y="729" text-anchor="middle">Browser</text>
+          <text class="t-sub" x="880" y="748" text-anchor="middle">Apollo + SignalR client</text>
+
+          <line class="e-sync" x1="880" y1="700" x2="880" y2="642" marker-end="url(#head-sync)" marker-start="url(#head-sync)"/>
+          <text class="t-edge" x="892" y="676">HTTP + WebSocket</text>
+
+          <!-- nginx to processor: REST -->
+          <line class="e-sync" x1="850" y1="560" x2="850" y2="182" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="860" y="452">/api</text>
+          <text class="t-edge" x="860" y="468">POST readings</text>
+
+          <!-- nginx to gateway: GraphQL -->
+          <polyline class="e-sync" points="960,590 1140,590 1140,412" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="1050" y="582" text-anchor="middle">/graphql</text>
+          <text class="t-edge" x="1050" y="606" text-anchor="middle">queries</text>
+
+          <!-- notifications to nginx: SignalR push -->
+          <polyline class="e-sync" points="620,410 620,590 798,590" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="710" y="582" text-anchor="middle">/hubs · push</text>
+          <text class="t-edge" x="710" y="606" text-anchor="middle">readings, alerts</text>
+
+          <!-- observability stack -->
+          <rect class="box" x="30" y="545" width="200" height="54" rx="8"/>
+          <text class="t-title" x="130" y="568" text-anchor="middle">Prometheus</text>
+          <text class="t-sub" x="130" y="586" text-anchor="middle">scrapes /metrics</text>
+
+          <rect class="box" x="270" y="545" width="200" height="54" rx="8"/>
+          <text class="t-title" x="370" y="568" text-anchor="middle">Loki</text>
+          <text class="t-sub" x="370" y="586" text-anchor="middle">Serilog events</text>
+
+          <rect class="box" x="30" y="625" width="200" height="54" rx="8"/>
+          <text class="t-title" x="130" y="648" text-anchor="middle">Tempo</text>
+          <text class="t-sub" x="130" y="666" text-anchor="middle">OTLP traces :4317</text>
+
+          <rect class="box" x="270" y="625" width="200" height="54" rx="8"/>
+          <text class="t-title" x="370" y="648" text-anchor="middle">Grafana</text>
+          <text class="t-sub" x="370" y="666" text-anchor="middle">overview dashboard</text>
+
+          <line class="e-sync" x1="232" y1="572" x2="268" y2="640" marker-end="url(#head-sync)"/>
+          <line class="e-sync" x1="370" y1="601" x2="370" y2="623" marker-end="url(#head-sync)"/>
+          <line class="e-sync" x1="232" y1="652" x2="268" y2="652" marker-end="url(#head-sync)"/>
+          <text class="t-edge" x="250" y="720" text-anchor="middle">all four .NET services send logs, traces and metrics here;</text>
+          <text class="t-edge" x="250" y="738" text-anchor="middle">without the profile the exporters drop them quietly</text>
+        
+  <line class="e-sync" x1="780" y1="40" x2="812" y2="40"/>
+  <text class="t-edge" x="820" y="44">HTTP or SQL call</text>
+  <line class="e-msg" x1="960" y1="40" x2="992" y2="40"/>
+  <text class="t-msg" x="1000" y="44">message via RabbitMQ</text>
+</svg>
