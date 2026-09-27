@@ -12,10 +12,6 @@ namespace NotificationService.API.Extensions;
 
 internal static class ServiceCollectionExtensions
 {
-    private const int RetryCount = 3;
-
-    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
-
     extension(IServiceCollection services)
     {
         public IServiceCollection AddApi(IConfiguration configuration)
@@ -39,6 +35,12 @@ internal static class ServiceCollectionExtensions
             return services;
         }
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    private const int RetryCount = 3;
+
+    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(1);
 
     private static void AddClientAppCors(IServiceCollection services, IConfiguration configuration)
     {

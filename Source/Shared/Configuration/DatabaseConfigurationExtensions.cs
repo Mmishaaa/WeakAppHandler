@@ -5,10 +5,6 @@ namespace Shared.Configuration;
 
 public static class DatabaseConfigurationExtensions
 {
-    public const string DatabaseConnectionStringName = "Database";
-
-    public const string DatabasePasswordKey = "Database:Password";
-
     extension(IConfiguration configuration)
     {
         public string GetDatabaseConnectionString()
@@ -28,4 +24,10 @@ public static class DatabaseConfigurationExtensions
             return builder.ConnectionString;
         }
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    public const string DatabaseConnectionStringName = "Database";
+
+    public const string DatabasePasswordKey = "Database:Password";
 }

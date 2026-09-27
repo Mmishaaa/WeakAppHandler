@@ -220,19 +220,6 @@ namespace DataProcessorService.DAL.Migrations
                     b.ToTable("Meters");
                 });
 
-            modelBuilder.Entity("Shared.Entities.DbProcessedMessage", b =>
-                {
-                    b.Property<Guid>("MessageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("MessageId");
-
-                    b.ToTable("ProcessedMessages");
-                });
-
             modelBuilder.Entity("Shared.Entities.DbReading", b =>
                 {
                     b.Property<long>("Id")

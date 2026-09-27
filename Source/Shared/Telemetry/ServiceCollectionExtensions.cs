@@ -9,9 +9,6 @@ namespace Shared.Telemetry;
 
 public static class ServiceCollectionExtensions
 {
-    private const string MassTransitSourceName = "MassTransit";
-    private const string NpgsqlSourceName = "Npgsql";
-
     extension(IServiceCollection services)
     {
         public IServiceCollection AddTelemetry(IConfiguration configuration, string application)
@@ -52,4 +49,9 @@ public static class ServiceCollectionExtensions
             return services;
         }
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    private const string MassTransitSourceName = "MassTransit";
+    private const string NpgsqlSourceName = "Npgsql";
 }

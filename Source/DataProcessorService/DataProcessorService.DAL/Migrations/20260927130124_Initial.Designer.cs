@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DataProcessorService.DAL.Migrations
 {
     [DbContext(typeof(ProcessorDbContext))]
-    [Migration("20260910224025_AddOutbox")]
-    partial class AddOutbox
+    [Migration("20260927130124_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -221,19 +221,6 @@ namespace DataProcessorService.DAL.Migrations
                         .IsUnique();
 
                     b.ToTable("Meters");
-                });
-
-            modelBuilder.Entity("Shared.Entities.DbProcessedMessage", b =>
-                {
-                    b.Property<Guid>("MessageId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("MessageId");
-
-                    b.ToTable("ProcessedMessages");
                 });
 
             modelBuilder.Entity("Shared.Entities.DbReading", b =>

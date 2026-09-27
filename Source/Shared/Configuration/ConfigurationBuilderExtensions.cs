@@ -5,10 +5,6 @@ namespace Shared.Configuration;
 
 public static class ConfigurationBuilderExtensions
 {
-    public const string ThresholdsFileName = "thresholds.json";
-
-    public const string DockerSecretsDirectory = "/run/secrets";
-
     extension(IConfigurationBuilder configuration)
     {
         public IConfigurationBuilder AddSharedThresholds()
@@ -29,4 +25,10 @@ public static class ConfigurationBuilderExtensions
         public IConfigurationBuilder AddDockerSecrets() =>
             configuration.AddKeyPerFile(DockerSecretsDirectory, optional: true);
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    public const string ThresholdsFileName = "thresholds.json";
+
+    public const string DockerSecretsDirectory = "/run/secrets";
 }

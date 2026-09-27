@@ -11,9 +11,6 @@ namespace DataIngestorService.Extensions;
 
 internal static class ServiceCollectionExtensions
 {
-    private const string ApiKeyHeaderName = "X-Api-Key";
-    private const string ResiliencePipelineName = "weakapp";
-
     extension(IServiceCollection services)
     {
         public IServiceCollection AddApi(IConfiguration configuration)
@@ -33,6 +30,11 @@ internal static class ServiceCollectionExtensions
             return services;
         }
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    private const string ApiKeyHeaderName = "X-Api-Key";
+    private const string ResiliencePipelineName = "weakapp";
 
     private static void AddWeakAppClient(IServiceCollection services, IConfiguration configuration)
     {

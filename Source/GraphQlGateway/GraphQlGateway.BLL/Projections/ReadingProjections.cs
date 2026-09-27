@@ -6,19 +6,6 @@ namespace GraphQlGateway.BLL.Projections;
 
 public static class ReadingProjections
 {
-    public static Expression<Func<DbReading, ReadingModel>> Projection { get; } =
-        reading => new ReadingModel
-        {
-            Id = reading.Id,
-            MeterId = reading.MeterId,
-            Location = reading.Meter.Location,
-            MeterType = reading.Meter.MeterType,
-            MetricCode = reading.MetricCode,
-            ObservedAt = reading.ObservedAt,
-            Numeric = reading.ValueNumeric,
-            Flag = reading.ValueBool,
-        };
-
     extension(IQueryable<DbReading> readings)
     {
         public IQueryable<ReadingModel> ToModels() => readings.Select(Projection);
@@ -65,4 +52,19 @@ public static class ReadingProjections
             return query;
         }
     }
+
+    // Below the extension block because StyleCop does not recognise extension blocks yet and
+    // reports any of them that follows a field or a property (SA1201).
+    public static Expression<Func<DbReading, ReadingModel>> Projection { get; } =
+        reading => new ReadingModel
+        {
+            Id = reading.Id,
+            MeterId = reading.MeterId,
+            Location = reading.Meter.Location,
+            MeterType = reading.Meter.MeterType,
+            MetricCode = reading.MetricCode,
+            ObservedAt = reading.ObservedAt,
+            Numeric = reading.ValueNumeric,
+            Flag = reading.ValueBool,
+        };
 }
