@@ -1,5 +1,17 @@
 # WeakAppHandler
 
+## Prerequisites
+
+| Tool | Why |
+|------|-----|
+| Docker with Compose v2 | the whole stack, and the Testcontainers integration tests |
+| .NET 10 SDK | building and testing the services, `dotnet ef` for migrations |
+| Node 22+ with Corepack | the frontend; Corepack provides the pinned Yarn 4 |
+| PowerShell 7 (`pwsh`) | `scripts/*.ps1` and `export-schema.ps1`; Windows PowerShell 5.1 refuses to run them |
+
+On Windows, PowerShell 7 installs next to the built-in 5.1 with
+`winget install --id Microsoft.PowerShell --source winget`; run the scripts through `pwsh`.
+
 ## Running the stack
 
 ```powershell
@@ -52,8 +64,10 @@ instead, which is only safe before the first start. A variable named
 `WEAKAPPHANDLER_SECRET_<NAME>` (for example `WEAKAPPHANDLER_SECRET_POSTGRES_PASSWORD`) takes
 precedence over both; the deploy workflow fills these from repository secrets of the same name
 without the prefix (`POSTGRES_PASSWORD`, `RABBITMQ_PASSWORD`, ...), and any it does not find
-fall back to the development values. The images take the files through their
-`*_FILE` variables, and the .NET services read `/run/secrets` as configuration
+fall back to the development values. PostgreSQL, pgAdmin and Grafana take the files through
+their `*_FILE` variables; the RabbitMQ image has no such variable, so its entrypoint is wrapped
+to export `RABBITMQ_DEFAULT_PASS` from the file just before the broker starts. The .NET services
+read `/run/secrets` as configuration
 (`AddDockerSecrets`), where each file is mounted under a configuration key such as
 `RabbitMq__Password` or `Database__Password`. Nothing secret appears in `docker inspect`.
 
@@ -101,8 +115,10 @@ from the mounted secrets.
 ## WeakApp
 
 A vendored third-party API that reports meter readings and fails on purpose — roughly one
-response in ten is a 5xx, a rate-limit or a truncated body. See [THIRD_PARTY.md](THIRD_PARTY.md)
-for provenance and licence.
+response in ten is a 5xx, a rate-limit or a truncated body. It comes from
+<https://github.com/nantonov/WeakApp> as a prebuilt .NET 9 publish output under
+`third_party/weak-app/`, with no source; it is MIT-licensed, see
+`third_party/weak-app/LICENSE`.
 
 | What | Where |
 |------|-------|
@@ -178,13 +194,14 @@ neither gains anything from it.
 
 ## Metrics
 
-Every service exports OpenTelemetry metrics on `/metrics` in Prometheus format. `docker compose up`
-brings up the two pieces that consume them:
+Every service exports OpenTelemetry metrics on `/metrics` in Prometheus format. The two pieces
+that consume them belong to the `observability` profile, so they start with
+`docker compose --profile observability up -d` (or with `COMPOSE_PROFILES` set in `.env`):
 
 | | Address | Credentials |
 |---|---|---|
 | Prometheus | <http://localhost:9090> | none |
-| Grafana | <http://localhost:3000> | `admin` / `admin`, anonymous viewing is on |
+| Grafana | <http://localhost:3000> | `admin` and the password in `secrets/grafana_password` (`admin` in development); anonymous viewing is on |
 
 Grafana arrives provisioned — the three datasources and the **WeakAppHandler overview**
 dashboard are all read from `observability/` at startup, so there is nothing to import by hand.
@@ -215,9 +232,9 @@ broken down by status code. That is where the rate limiter becomes visible: a ru
 
 The ingestor has no local buffer: when RabbitMQ refuses a batch or does not confirm it within
 five seconds, the batch is dropped rather than retried. The timeout matters because MassTransit
-keeps waiting for a broker that is down instead of failing the publish. WeakApp reports a snapshot of the current state, so a dropped batch
-is a missing point in each series it carried, and the next poll brings fresh values. The loss is
-made visible instead of prevented:
+keeps waiting for a broker that is down instead of failing the publish. WeakApp reports a
+snapshot of the current state, so a dropped batch is a missing point in each series it carried,
+and the next poll brings fresh values. The loss is made visible instead of prevented:
 
 - `weakapphandler.batches.publish_failed` counts dropped batches, and the **Batches dropped, 1h**
   panel turns red on the first one;
@@ -274,9 +291,9 @@ dotnet test Source\NotificationService\NotificationService.slnx
 cd Source\Frontend; yarn test; yarn e2e
 ```
 
-xUnit with AwesomeAssertions and Moq; Vitest with Testing Library and Playwright on the frontend. What is covered is deliberately the
-behaviour that actually broke while the project was being built, so the suite is a record of the
-bugs rather than a coverage number:
+xUnit with AwesomeAssertions and Moq; Vitest with Testing Library and Playwright on the
+frontend. What is covered is deliberately the behaviour that actually broke while the project
+was being built, so the suite is a record of the bugs rather than a coverage number:
 
 | Where | What it pins down |
 |-------|-------------------|
@@ -305,7 +322,7 @@ these tests fail to start; the unit tests in the same projects are unaffected.
 | Where | What it pins down |
 |-------|-------------------|
 | `ReadingBatchServiceDatabaseTests` | the migrations apply cleanly, the transaction commits readings and meters together, and a meter is reused across batches |
-| `ReadingRepositoryDatabaseTests` | every aggregate really is computed by PostgreSQL: hourly and daily bucketing, grouping by location and by meter type, `ORDER BY AVG(...) DESC`, the boolean `trueCount` / `trueShare` pair, and the latest-per-meter join |
+| `ReadingRepositoryDatabaseTests` | every aggregate really is computed by PostgreSQL: five- and fifteen-minute, hourly and daily bucketing, grouping by location and by meter type, `ORDER BY AVG(...) DESC`, the boolean `trueCount` / `trueShare` pair, and the latest-per-meter join |
 
 The gateway builds its schema with `EnsureCreated`, because it owns no migrations — it reads the
 tables the processor owns. The processor's fixture runs `Migrate`, so a migration that does not
@@ -317,13 +334,15 @@ apply fails the suite rather than production.
 against `vite preview`, and `e2e/backend.ts` answers `/graphql`, `/api/readings` and the SignalR
 negotiate request inside the browser, so they need no running backend: they check that the page
 renders what the API returns, highlights breaches, reports the hub as offline and posts the form.
-The first run needs the browser: `yarn playwright install chromium`.
+They serve `dist`, so run `yarn build` first. The first run also needs the browser:
+`yarn playwright install chromium`. By default Chromium runs headless; `yarn playwright test
+--headed` shows the window and `yarn playwright test --ui` opens the step-by-step runner.
 
 ## Continuous integration
 
 One workflow per service plus one for the frontend, under `.github/workflows/`. Each is scoped by
-`paths`, so a change to the gateway does not rebuild the ingestor, and each runs the same four
-stages: lint, build, test, Docker image.
+`paths`, so a change to the gateway does not rebuild the ingestor, and each runs the same five
+stages: lint, build, test, Docker image, publish.
 
 | Workflow | Lint | Build | Test | Image |
 |----------|------|-------|------|-------|
@@ -332,6 +351,14 @@ stages: lint, build, test, Docker image.
 | `graphql-gateway.yml` | same | same | unit + Testcontainers | same |
 | `notification-service.yml` | same | same | `dotnet test` | same |
 | `frontend.yml` | `yarn lint` (oxlint) | `yarn build` (`tsc -b` + Vite) | `yarn test` (Vitest) + `yarn e2e` (Playwright) | `docker build Source/Frontend` |
+
+The publish stage pushes the image to GitHub Container Registry as
+`ghcr.io/<owner>/weakapphandler/<service>`. Every push to `main` or `dev` gets the commit sha as
+its tag, and `main` also moves `latest`; pull requests only build the image, because a token
+from a fork cannot write packages and an unmerged image has nowhere to go. It authenticates with
+the workflow's own `GITHUB_TOKEN` (`packages: write` on the job), so no repository secret is
+needed. The image carries `org.opencontainers.image.source`, which links the package to the
+repository and gives it the repository's visibility.
 
 `deploy.yml` sits beside them and is described under [Deployment](#deployment).
 
@@ -373,8 +400,8 @@ What a run does:
    so the services run in Production and the script blocks until the containers with health checks
    report healthy and the rest are running.
 4. Probes all ten services — WeakApp and the four .NET services on `/health`, the dashboard,
-   Prometheus, Loki, Tempo and Grafana — asking Docker which host port each one actually got rather than trusting
-   `.env`.
+   Prometheus, Loki, Tempo and Grafana — asking Docker which host port each one actually got
+   rather than trusting `.env`.
 5. Writes the tag to `.deploy-state.json`, keeping the one before it.
 
 A failure at any of those steps re-deploys the tag recorded as current and then reports the
@@ -408,6 +435,14 @@ docker compose exec postgres psql -U gateway -d weakapphandler -c 'delete from "
 
 The first succeeds, the second fails with `permission denied for table Readings`.
 
+PowerShell strips the inner double quotes when it passes an argument to a native program, which
+turns `"Readings"` into `readings` and fails with `relation "readings" does not exist`. Pipe the
+SQL in instead:
+
+```powershell
+'select count(*) from "Readings";' | docker compose exec -T postgres psql -U gateway -d weakapphandler
+```
+
 ## REST API
 
 The processor owns the write side, so REST lives there rather than on the read-only gateway.
@@ -415,8 +450,12 @@ The processor owns the write side, so REST lives there rather than on the read-o
 | What | Where |
 |------|-------|
 | Endpoints | `http://localhost:5242/api` |
-| OpenAPI document | `GET http://localhost:5242/openapi/v1.json` |
-| Scalar UI | `http://localhost:5242/scalar` |
+| OpenAPI document | `GET http://localhost:5242/openapi/v1.json` (Development only) |
+| Scalar UI | `http://localhost:5242/scalar` (Development only) |
+
+The OpenAPI document and Scalar are mapped only in Development, which is what
+`docker-compose.override.yml` and the IDE run in. A stack started by `scripts/deploy.ps1` runs in
+Production and answers `404` on both.
 
 | Method | Route | Purpose |
 |--------|-------|---------|
@@ -510,6 +549,21 @@ the breakdown table, the paged reading list (`readings`, keyset cursors), the li
 and the submit form (`POST /api/readings`). Nothing is filtered, sorted or aggregated in the
 browser — every panel asks the server for exactly the rows it draws.
 
+The chart's bucket size follows the time window, so every window draws enough points to show a
+trend:
+
+| Window | Bucket | Points |
+|--------|--------|--------|
+| Last hour | 5 minutes | 12 |
+| Last 6 hours | 15 minutes | 24 |
+| Last 24 hours | 1 hour | 24 |
+| Last 7 / 30 days | 1 day | 7 / 30 |
+
+Bucketing happens in SQL (`TimeBucket` in the schema: `FIVE_MINUTES`, `FIFTEEN_MINUTES`,
+`HOUR`, `DAY`). A line needs two buckets, so right after a stack starts on an empty database
+each location shows a single dot until the readings reach the next bucket. The window bounds
+snap to bucket boundaries, so the chart re-queries once per bucket rather than on every render.
+
 The breakdown table switches between two dimensions, and the switch changes which query runs
 rather than how the rows are processed: `locationStats` groups by location and metric,
 `meterTypeStats` by meter type and metric.
@@ -584,12 +638,18 @@ has already handled is acknowledged without calling it again. Inbox rows are kep
 duplicate-detection window (`DuplicateDetectionWindow` in the processor's `AddApi`) and removed
 afterwards by MassTransit's cleanup service, so the table does not grow without bound.
 
-The outbox tables come from a migration, so after pulling this change:
+The outbox tables come from the processor's migrations like every other table. Migrations are
+generated with the EF tooling, never written by hand:
 
 ```powershell
 cd Source/DataProcessorService/DataProcessorService.API
-dotnet ef migrations add Outbox --project ../DataProcessorService.DAL --startup-project .
+dotnet ef migrations add <Name> --project ../DataProcessorService.DAL --startup-project .
 ```
+
+The processor refuses to start while the model has changes no migration covers
+(`PendingModelChangesWarning`). If the migrations are regenerated from scratch rather than added
+to, an existing database still records the old ones in `__EFMigrationsHistory`, so wipe the
+volume with `docker compose down -v` before starting again.
 
 ### Subscribing
 
